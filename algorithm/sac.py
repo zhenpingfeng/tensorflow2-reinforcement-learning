@@ -104,7 +104,7 @@ class Model(tf.keras.Model):
 
 class Agent(base.Base_Agent):
     def build(self):
-        self.gamma = 0.3
+        self.gamma = 0.5
         self.types = "PG"
         self.aciton_space = Box(-1,1, (4,))
 
@@ -156,7 +156,7 @@ class Agent(base.Base_Agent):
             mean_q_pi = (q1_pi + q2_pi) / 2
             # min_q_pi = tf.minimum(q1_pi, q2_pi)
             # q1, q2, v = self.model.critic.predict_on_batch([states, actions])
-            p_loss = tf.reduce_mean(ent_coef * logp_pi * 10 - (q1_pi + q2_pi))
+            p_loss = tf.reduce_mean(ent_coef * logp_pi * 2 - (q1_pi + q2_pi))
             # p_loss = tf.reduce_mean(ent_coef * logp_pi - q1_pi) + tf.reduce_mean(ent_coef * logp_pi - q2_pi)
         ################################################################################
         with tf.GradientTape() as v_tape:
@@ -195,7 +195,7 @@ class Agent(base.Base_Agent):
             self.p_opt.apply_gradients(zip(gradients, self.model.actor.trainable_variables))
 
             self.target_model.set_weights(
-                (1 - 0.005) * np.array(self.target_model.get_weights()) + 0.005 * np.array(
+                (1 - 0.01) * np.array(self.target_model.get_weights()) + 0.01 * np.array(
                     self.model.get_weights()))
 
         gradients = e_tape.gradient(e_loss, self.model.log_ent_coef)
