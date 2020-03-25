@@ -118,7 +118,7 @@ class Agent(base.Base_Agent):
         else:
             self.target_model.set_weights(self.model.get_weights())
 
-        self.v_opt = tf.keras.optimizers.Nadam(1e-3)
+        self.v_opt = tf.keras.optimizers.Nadam(1e-4)
         self.p_opt = tf.keras.optimizers.Nadam(self.lr)
         self.e_opt = tf.keras.optimizers.Nadam(self.lr)
 
@@ -208,7 +208,7 @@ class Agent(base.Base_Agent):
         lr = self.lr * 0.0001 ** (i / 10000000)
         self.e_opt.lr.assign(lr)
         self.p_opt.lr.assign(lr)
-        lr = 1e-3 * 0.0001 ** (i / 10000000)
+        lr = 1e-4 * 0.0001 ** (i / 10000000)
         self.v_opt.lr.assign(lr)
 
     # def gamma_updae(self, i):
