@@ -1,11 +1,10 @@
 import shutil
-from collections import deque
 
-import tensorflow as tf
 import numpy as np
-from IPython.display import clear_output
+import tensorflow as tf
 
 import base
+
 
 def output(x, num):
     x = tf.keras.layers.Dense(512, "elu")(x)
@@ -24,10 +23,11 @@ def build_model(n=200, dim=(30, 4)):
 
     return tf.keras.Model(inputs, out)
 
+
 class Agent(base.Base_Agent):
     def build(self):
         self.types = "DQN"
-        self.gamma = 0.2
+        self.gamma = 0.5
         self.epsilon = 0.05
 
         n = 200
@@ -44,16 +44,15 @@ class Agent(base.Base_Agent):
             self.target_model.set_weights(self.model.get_weights())
 
     def loss(self, states, new_states, rewards, actions):
-        q = self.model.predict_on_batch(states)
-        target_q = self.target_model.predict_on_batch(new_states).numpy()
-        arg_q = np.sum(self.model.predict_on_batch(new_states), -1).reshape((-1,2))
+        q = self.model(states)
+        target_q = self.target_model(new_states)
+        arg_q = np.sum(self.model(new_states), -1).reshape((-1, 2))
         arg_q = [np.argmax(i) if 0.05 < np.random.rand() else np.random.randint(2) for i in arg_q]
 
         q_backup = q.numpy()
 
         for i in range(q.shape[0]):
             q_backup[i, actions[i]] = rewards[i] + self.gamma * target_q[i, arg_q[i]]
-
 
         error = q_backup - q
         q_error = tf.maximum(self.tau * error, (self.tau - 1) * error)

@@ -45,8 +45,8 @@ def apply_squashing_func(mu_, pi_, logp_pi):
 
 
 def output(x, name):
-    x = tf.keras.layers.Dense(512, "elu")(x)
-    x = tf.keras.layers.Dropout(0.3)(x)
+    x = tf.keras.layers.Dense(128, "elu")(x)
+    # x = tf.keras.layers.Dropout(0.3)(x)
     return tf.keras.layers.Dense(1, name=name)(x)
 
 
@@ -60,9 +60,9 @@ def build_actor(dim=(30,4)):
 
     x = tf.keras.layers.GlobalAveragePooling1D()(inputs)
     x = tf.keras.layers.Dense(128, "elu")(x)
-    x = tf.keras.layers.Dropout(0.3)(x)
+    # x = tf.keras.layers.Dropout(0.3)(x)
     x = tf.keras.layers.Dense(128, "elu")(x)
-    x = tf.keras.layers.Dropout(0.3)(x)
+    # x = tf.keras.layers.Dropout(0.3)(x)
     # x = tf.keras.layers.GlobalAveragePooling1D()(x)
 
     log_std = tf.keras.layers.Dense(4)(x)
@@ -104,7 +104,8 @@ class Model(tf.keras.Model):
 
 class Agent(base.Base_Agent):
     def build(self):
-        self.gamma = 0.5
+        self.scale = 2
+        self.gamma = 0.2
         self.types = "PG"
         self.aciton_space = Box(-1,1, (4,))
 
@@ -151,8 +152,8 @@ class Agent(base.Base_Agent):
         ent_coef = tf.exp(self.model.log_ent_coef)
         ################################################################################
         with tf.GradientTape() as p_tape:
-            d, policy, logp_pi = self.model.actor.predict_on_batch(states)
-            q1_pi, q2_pi, _ = self.model.critic.predict_on_batch([states, policy])
+            d, policy, logp_pi = self.model.actor(states)
+            q1_pi, q2_pi, _ = self.model.critic([states, policy])
             mean_q_pi = (q1_pi + q2_pi) / 2
             # min_q_pi = tf.minimum(q1_pi, q2_pi)
             # q1, q2, v = self.model.critic.predict_on_batch([states, actions])
@@ -160,8 +161,8 @@ class Agent(base.Base_Agent):
             # p_loss = tf.reduce_mean(ent_coef * logp_pi - q1_pi) + tf.reduce_mean(ent_coef * logp_pi - q2_pi)
         ################################################################################
         with tf.GradientTape() as v_tape:
-            _, _, target_v = self.target_model.critic.predict_on_batch([new_states, actions])
-            q1, q2, v = self.model.critic.predict_on_batch([states, actions])
+            _, _, target_v = self.target_model.critic([new_states, actions])
+            q1, q2, v = self.model.critic([states, actions])
 
             q_backup = rewards + self.gamma * target_v
 
@@ -208,7 +209,7 @@ class Agent(base.Base_Agent):
         lr = self.lr * 0.0001 ** (i / 10000000)
         self.e_opt.lr.assign(lr)
         self.p_opt.lr.assign(lr)
-        lr = 1e-4 * 0.0001 ** (i / 10000000)
+        lr = 1e-3 * 0.0001 ** (i / 10000000)
         self.v_opt.lr.assign(lr)
 
     # def gamma_updae(self, i):
