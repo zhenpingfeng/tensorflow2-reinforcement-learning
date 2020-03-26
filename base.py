@@ -40,6 +40,7 @@ class Base_Agent:
         self.n = n
         self.gamma = 0.4
         self.random = 0
+        self.scale = 3
 
         self.gen_data()
         self.build()
@@ -151,7 +152,7 @@ class Base_Agent:
                     else:
                         # rewards[index] = r - self.rewards.total_gain[index - 1]
                         rewards[index] = (np.log(r / self.rewards.total_gain[index - 1]) * 100)
-                        rewards[index] = int(rewards[index] * 10 ** 3) * (10 ** -2)
+                        rewards[index] = int(rewards[index] * 10 ** self.scale) * (10 ** -2)
                         # if rewards[index] == -np.inf:
                         #     rewards[index] = 0
 
@@ -180,7 +181,7 @@ class Base_Agent:
             if i % 2000 == 0:
                 clear_output()
 
-            if (i + 1) % 5 == 0:
+            if (i + 1) % 5 == 0 or not train:
                 prob = self.prob(action)
 
                 print('action probability: buy={}, sell={}, hold={}'.format(
