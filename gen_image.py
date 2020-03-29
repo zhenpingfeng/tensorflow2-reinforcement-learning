@@ -17,7 +17,7 @@ x = np.array(x)[-15000:]
 y = x[:]
 
 fig1 = plt.figure(figsize=(4.03, 4.13))
-fig2 = plt.figure(figsize=(4.03, 4.13))
+fig2 = plt.figure(figsize=(1, 1))
 ax1 = fig1.add_subplot(1, 1, 1)
 ax2 = fig2.add_subplot(1, 1, 1)
 
@@ -27,7 +27,7 @@ image2 = []
 image_label = []
 
 window_size = 30
-history_size = 10
+history_size = 2
 
 for i in range(0, len(y) - window_size - history_size):
     # for i in range(1):
@@ -35,16 +35,23 @@ for i in range(0, len(y) - window_size - history_size):
                       x[i:i + window_size, 0], width=0.5, alpha=1, colorup="r", colordown="b")
     image_time_x.append(x[i:i + window_size])
     i += window_size
+
     candlestick2_ohlc(ax2, x[i:i + history_size, 1], x[i:i + history_size, 2], x[i:i + history_size, 3],
-                      x[i:i + history_size, 0], width=0.5, alpha=1, colorup="k", colordown="y")
+                      x[i:i + history_size, 0], width=0.1, alpha=1, colorup="k", colordown="y")
+
     label = 1 if x[i, 0] > x[i - 1, 0] else 0
     image_label.append(label)
 
     ax1.axis("off")
     ax2.axis("off")
 
+    # if x[i-1,-1,0] > x[i,-1,0]:
+    #   color = "royalblue"
+    # else:
+    #   color = "salmon"
+
     fig1.savefig('forex1.jpg', bbox_inches='tight', pad_inches=0.0)
-    fig2.savefig('forex2.jpg', bbox_inches='tight', pad_inches=0.0)
+    fig2.savefig('forex2.jpg', pad_inches=0.0, facecolor="r", alpha=0.5)
     #
     ax1.cla()
     ax2.cla()
