@@ -15,15 +15,19 @@ def build_model(dim=(30, 4)):
     inputs = tf.keras.layers.Input(dim)
 
     x = base.bese_net(inputs)
+    x = tf.keras.layers.Flatten()(x)
+    # x = tf.keras.layers.GRU(128)(x)
 
-    tensor_action, tensor_validation = tf.split(x, 2, 1)
-    v = tf.keras.layers.Dense(328, "elu", kernel_initializer="he_normal")(tensor_validation)
-    # v = tf.keras.layers.BatchNormalization()(v)
-    v = tf.keras.layers.Dense(1, name="v")(v)
-    a = tf.keras.layers.Dense(328, "elu", kernel_initializer="he_normal")(tensor_action)
-    # a = tf.keras.layers.BatchNormalization()(a)
-    a = tf.keras.layers.Dense(2, name="a")(a)
-    out = v + tf.subtract(a, tf.reduce_mean(a, axis=1, keepdims=True))
+    # tensor_action, tensor_validation = tf.split(x, 2, 1)
+    # x = tf.keras.layers.Dense(512, "elu")(x)
+    out = tf.keras.layers.Dense(2, name="out")(x)
+    # v = tf.keras.layers.Dense(328, "elu", kernel_initializer="he_normal")(tensor_validation)
+    # # v = tf.keras.layers.BatchNormalization()(v)
+    # v = tf.keras.layers.Dense(1, name="v")(v)
+    # a = tf.keras.layers.Dense(328, "elu", kernel_initializer="he_normal")(tensor_action)
+    # # a = tf.keras.layers.BatchNormalization()(a)
+    # a = tf.keras.layers.Dense(2, name="a")(a)
+    # out = v + tf.subtract(a, tf.reduce_mean(a, axis=1, keepdims=True))
 
     return tf.keras.Model(inputs, out)
 
@@ -32,8 +36,9 @@ def build_model(dim=(30, 4)):
 class Agent(base.Base_Agent):
     def build(self):
         self.types = "DQN"
-        self.gamma = 0.5
+        self.gamma = 0.3
         self.epsilon = 0.05
+        self.scale = 3
 
         if self.restore:
             self.i = np.load("dqn_epoch.npy")
@@ -46,9 +51,9 @@ class Agent(base.Base_Agent):
             self.target_model.set_weights(self.model.get_weights())
 
     def loss(self, states, new_states, rewards, actions):
-        q = self.model.predict_on_batch(states)
-        target_q = self.target_model.predict_on_batch(new_states).numpy()
-        arg_q = self.model.predict_on_batch(new_states).numpy()
+        q = self.model(states)
+        target_q = self.target_model(new_states).numpy()
+        arg_q = self.model(new_states).numpy()
         arg_q = np.argmax(arg_q, -1)
 
         q_backup = q.numpy()
@@ -91,7 +96,7 @@ class Agent(base.Base_Agent):
         self.model.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
 
     def lr_decay(self, i):
-        lr = self.lr * 0.00001 ** (i / 10000000)
+        lr = self.lr * 0.0001 ** (i / 10000000)
         self.model.optimizer.lr.assign(lr)
 
     # def gamma_updae(self, i):
@@ -99,7 +104,7 @@ class Agent(base.Base_Agent):
 
     def policy(self, state, i):
         epsilon = self.epsilon + (1 - self.epsilon) * (np.exp(-0.0001 * i))
-        q = self.model.predict_on_batch(state).numpy()
+        q = self.model(state).numpy()
 
         if (i + 1) % 5 != 0:
             q = np.abs(q) / np.sum(np.abs(q), 1).reshape((-1, 1)) * (np.abs(q) / q)
