@@ -98,30 +98,40 @@ def reduction_b(i):
 
 def f(x, f):
     x = f(x)
-    return se_bloack(x)
+    return x
 
 def se_inception_resnet_v2(input_shape=(224,224,3), output_size=2):
     inputs = tf.keras.layers.Input(input_shape)
 
     x = f(inputs, stem)
+    x = se_bloack(x)
 
     for i in range(5):
         x = f(x, resnet_a)
+    x = se_bloack(x)
     x = f(x, reduction_a)
+    x = se_bloack(x)
 
     for i in range(10):
         x = f(x, resnet_b)
+    x = se_bloack(x)
     x = f(x, reduction_b)
+    x = se_bloack(x)
 
     for i in range(5):
         x = f(x, resnet_c)
+    x = se_bloack(x)
 
     x = tf.keras.layers.GlobalAveragePooling2D()(x)
     x = tf.keras.layers.Dropout(0.2)(x)
-
-    x = tf.keras.layers.Dense(output_size, "softmax")(x)
+    if output_size == 2:
+        x = tf.keras.layers.Dense(1, "sigmoid")(x)
+        loss = "binary_crossentropy"
+    else:
+        x = tf.keras.layers.Dense(output_size, "softmax")(x)
+        loss = "categorical_crossentropy"
 
     model = tf.keras.Model(inputs, x)
-    opt = tf.keras.optimizers.RMSprop(0.045,epsilon=1.,decay=0.9)
-    model.compile(opt, "categorical_crossentropy", ["accuracy"])
+    opt = tf.keras.optimizers.RMSprop(0.001,epsilon=1.,decay=0.5)
+    model.compile(opt, loss, ["accuracy"])
     return model
