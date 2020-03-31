@@ -39,18 +39,21 @@ class Reward:
 
         self.losses = []
         undetermined_assets = self.assets
-        self.positions = None
+        self.positions = []
+        self.lot = []
+        self.tp = []
+        self.los_cut = []
         self.minimum_required_margin = trend[0] * self.pip_cost / self.leverage
 
         for action, trend, idx, atr, scale_atr in zip(action, trend, range(len(high)), atr, scale_atr):
             if old_action == None and position == None and self.assets > self.minimum_required_margin * 2 and action != 2:
                 self.minimum_required_margin = trend * self.pip_cost / 500
                 lot = self.assets * self.available_assets_rate / self.minimum_required_margin * self.min_lots
-                self.lot = int(lot * 10 ** 2) / (10 ** 2)
+                self.lot.append(int(lot * 10 ** 2) / (10 ** 2))
 
-                self.positions = trend + self.spread if action == 0 else trend - self.spread
-                self.tp = min(abs(self.max_los_cut), atr * self.pip_cost)
-                self.los_cut = max(self.max_los_cut, -atr * self.pip_cost)
+                self.positions.append(trend + self.spread if action == 0 else trend - self.spread)
+                self.tp.append(min(abs(self.max_los_cut), atr * self.pip_cost))
+                self.los_cut.append(max(self.max_los_cut, -atr * self.pip_cost))
                 old_action = action
 
             elif old_action != None:
@@ -112,95 +115,94 @@ class Reward:
         self.assets = undetermined_assets
 
 class Reward2(Reward):
-    def reward(self, trend, high, low, action, leverage, lc, tp, atr, scale_atr):
-        old_action = None
-        position = None
-        gain = 0
-        self.los_cut = self.max_los_cut
-        old_assets = self.assets
+    def reward(self, trend, high, low, action, leverage, LC, TP, atr, scale_atr):
+        lot,positions,tp,lc = np.array([]), np.array([]), np.array([]), np.array([])
+        self.total_gain = []
 
-        self.losses = []
-        undetermined_assets = self.assets
-        self.positions = None
+        undetermined_assets = available_assets = self.assets
         self.minimum_required_margin = trend[0] * self.pip_cost / self.leverage
-        min_lc = -self.spread * 100 * 2
+        min_lc = -self.spread * 1000 * 100 * 2
 
-        for action, leverage, self.loss_cut, self.take_profit, trend, idx, atr, scale_atr in zip(action, leverage, lc, tp, trend, range(len(high)), atr, scale_atr):
-            if old_action == None and position == None and self.assets > self.minimum_required_margin * 5 and action != 2:
+        old_action = None
+
+        for action, leverage, self.loss_cut, self.take_profit, trend, idx, atr, scale_atr in zip(action, leverage, LC, TP, trend, range(len(high)), atr, scale_atr):
+            if old_action == None and not positions.tolist() and available_assets > self.minimum_required_margin and action != 2:
                 self.minimum_required_margin = trend * self.pip_cost / self.leverage
-                lot = self.assets * self.available_assets_rate / self.minimum_required_margin * self.min_lots
-                lot += lot * leverage
-                self.lot = int(lot * 10 ** 2) / (10 ** 2)
+                l = self.assets * self.available_assets_rate / self.minimum_required_margin * self.min_lots
+                l += l * leverage
+                lot = np.append(lot, int(l * 10 ** 2) / (10 ** 2))
+                available_assets = undetermined_assets - self.minimum_required_margin * sum(lot) * 100
 
-                self.positions = trend + self.spread if action == 0 else trend - self.spread
-                tp = (self.tp + self.tp * self.take_profit * self.lot) * 100
-                lc = min((self.lc - self.lc * self.loss_cut * self.lot) * 100, min_lc * self.lot)
+                positions = np.append(positions, trend + self.spread if action == 0 else trend - self.spread)
+                tp = np.append(tp, ((self.tp + self.tp * self.take_profit) * lot[-1]) * 100)
+                lc = np.append(lc, min(((-self.lc - self.lc * self.loss_cut) * lot[-1]) * 100, min_lc * lot[-1]))
+                # print(positions)
                 old_action = action
 
-            elif old_action != None:
-                if self.positions != None:
-                    if old_action == 0:
-                        gain = (trend - self.positions) * self.pip_cost * self.lot * 100
-                        loss = (low[idx - 1] - self.positions) * self.pip_cost * self.lot * 100
-                    else:
-                        gain = (self.positions - trend) * self.pip_cost * self.lot * 100
-                        loss = (self.positions - high[idx - 1]) * self.pip_cost * self.lot * 100
+            elif old_action != None and positions.tolist():
+                if old_action == 0:
+                    gain = (trend - positions) * self.pip_cost * lot * 100
+                    loss = (low[idx - 1] - positions) * self.pip_cost * lot * 100
+                else:
+                    gain = (positions - trend) * self.pip_cost * lot * 100
+                    loss = (positions - high[idx - 1]) * self.pip_cost * lot * 100
 
-                    loss = min(gain, loss)
-                    if loss <= lc:
-                        gain = lc
-                        confirm = True
-                    elif gain >= tp:
-                        confirm = True
-                    else:
-                        confirm = False
+                loss = np.minimum(gain, loss)
+                gain = np.where(loss <= lc, lc, gain)
 
-                    undetermined_assets = self.assets + gain
+                # print("lc", lc)
+                # print("lot", lot)
 
-                    buy = old_action != action and action != 2
-                    if confirm or buy:
+                d = []
+                for g in range(len(gain)):
+                    if gain[g] == lc[g] or gain[g] >= tp[g]:
+                        self.assets += float(gain[g])
+                        d.append(g)
+                if d:
+                    gain = np.delete(gain, d)
+                    lot = np.delete(lot, d)
+                    positions = np.delete(positions, d)
+                    lc = np.delete(lc, d)
+                    tp = np.delete(tp, d)
+
+                undetermined_assets = self.assets + float(sum(gain))
+                available_assets = undetermined_assets - self.minimum_required_margin * int(sum(lot)) * 100
+                t = (old_action != action and action != 2) or available_assets > self.minimum_required_margin
+                t = t[0] if type(t) == type(np.array([])) else t
+                if t:
+                    if old_action != action and action != 2:
                         self.assets = undetermined_assets
+                        lot,positions,tp,lc = np.array([]), np.array([]), np.array([]), np.array([])
+                        old_action = None
 
-                        if self.assets > self.minimum_required_margin * 5:
-                            if action == 2:
-                                self.positions = None
-                                old_action = None
-                            else:
-                                self.minimum_required_margin = trend * self.pip_cost / self.leverage
-                                lot = self.assets * self.available_assets_rate / self.minimum_required_margin * self.min_lots
-                                lot += lot * leverage
-                                self.lot = int(lot * 10 ** 2) / (10 ** 2)
-                                self.positions = trend + self.spread if action == 0 else trend - self.spread
-                                tp = (self.tp + self.tp * self.take_profit * self.lot) * 100
-                                lc = min((self.lc - self.lc * self.loss_cut * self.lot) * 100, min_lc * self.lot)
+                    if available_assets > self.minimum_required_margin and action != 2:
+                        self.minimum_required_margin = trend * self.pip_cost / self.leverage
+                        l = self.assets * self.available_assets_rate / self.minimum_required_margin * self.min_lots
+                        l += l * leverage
+                        lot = np.append(lot, int(l * 10 ** 2) / (10 ** 2))
+                        available_assets = undetermined_assets - self.minimum_required_margin * sum(lot) * 100
 
-                        else:
-                            self.positions = None
+                        positions = np.append(positions, trend + self.spread if action == 0 else trend - self.spread)
+                        tp = np.append(tp, ((self.tp + self.tp * self.take_profit) * lot[-1]) * 100)
+                        lc = np.append(lc, min(((self.lc - self.lc * self.loss_cut) * lot[-1]) * 100, min_lc * lot[-1]))
+                        # print(tp)
+                        old_action = action
 
-                    # else:
-                    #     print("gain {}".format(gain))
-                    #     print("loss {}".format(loss_cut))
-                    #     # undetermined_assets = self.assets + gain
+                    elif action == 2:
+                        if not positions.tolist() and available_assets > self.minimum_required_margin:
+                          old_action = None
+                    else:
+                        self.assets = undetermined_assets
+                        lot, positions, tp, lc = np.array([]), np.array([]), np.array([]), np.array([])
+                        old_action = None
 
-                    old_action = action if action != 2 else old_action
-
-                elif self.assets > self.minimum_required_margin * 2:
-                    old_action = None
-
-            try:
-                undetermined_assets = undetermined_assets[0]
-            except:
-                pass
             self.total_gain.append(undetermined_assets)
-            self.losses.append(self.los_cut)
             # print(undetermined_assets)
 
-            gain = 0
             self.growth_rate.append(np.log(undetermined_assets / self.initial_assets) * 100)
 
         self.assets = undetermined_assets
         self.total_gain = np.clip(self.total_gain, 1, max(self.total_gain))
-
 
 class Reward3(Reward):
     def reward(self, trend, high, low, leverage, atr, scale_atr):
