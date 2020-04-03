@@ -11,7 +11,7 @@ def softmax(x):
     return e_x / e_x.sum()
 
 
-def build_model(dim=(30, 4)):
+def build_model(dim=(130, 4)):
     inputs = tf.keras.layers.Input(dim)
 
     x = base.bese_net(inputs)
@@ -19,8 +19,8 @@ def build_model(dim=(30, 4)):
     # x = tf.keras.layers.GRU(128)(x)
 
     # tensor_action, tensor_validation = tf.split(x, 2, 1)
-    # x = tf.keras.layers.Dense(512, "elu")(x)
-    out = tf.keras.layers.Dense(2, name="out")(x)
+    x = tf.keras.layers.Dense(512, "elu")(x)
+    out = tf.keras.layers.Dense(3, name="out")(x)
     # v = tf.keras.layers.Dense(328, "elu", kernel_initializer="he_normal")(tensor_validation)
     # # v = tf.keras.layers.BatchNormalization()(v)
     # v = tf.keras.layers.Dense(1, name="v")(v)
@@ -36,7 +36,7 @@ def build_model(dim=(30, 4)):
 class Agent(base.Base_Agent):
     def build(self):
         self.types = "DQN"
-        self.gamma = 0.3
+        self.gamma = 0.9
         self.epsilon = 0.05
         self.scale = 3
 
@@ -108,10 +108,10 @@ class Agent(base.Base_Agent):
 
         if (i + 1) % 5 != 0:
             q = np.abs(q) / np.sum(np.abs(q), 1).reshape((-1, 1)) * (np.abs(q) / q)
-            epsilon = epsilon if self.random % 5 != 0 else 1.
+            epsilon = epsilon if self.random % 5 != 0 else 0.5
             q += epsilon * np.random.randn(q.shape[0], q.shape[1])
             # action = np.argmax(q, 1)
-            action = [np.argmax(i) if 0.1 < np.random.rand() else np.random.randint(2) for i in q]
+            action = [np.argmax(i) if 0.1 < np.random.rand() else np.random.randint(3) for i in q]
             self.random += 1
         else:
             action = np.argmax(q, -1)

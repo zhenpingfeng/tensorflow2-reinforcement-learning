@@ -9,10 +9,6 @@ from gym.spaces import Box
 EPS = 1e-10
 
 
-"""
-q値の近似とランダム性
-"""
-
 def gaussian_entropy(log_std):
     return tf.reduce_sum(log_std + 0.5 * np.log(2.0 * np.pi * np.e), axis=-1, name="entropy", keepdims=True)
 
@@ -52,21 +48,33 @@ def output(x, name):
 
 def build_actor(dim=(30,4)):
     inputs = tf.keras.layers.Input(dim)
+    x = tf.keras.layers.Flatten()(inputs)
     # #
-    # x = tf.keras.layers.GRU(32, return_sequences=True)(inputs)
-    # x2 = tf.keras.layers.Conv1D(32,3,1,"same",activation="elu")(inputs)
-    # x = tf.keras.layers.Concatenate()([x,x2])
-    # x = tf.keras.layers.Conv1D(32,3,1,"same",activation="elu")(x)
+    # x = tf.keras.layers.Conv1D(48,3,2,"same")(inputs)
+    # # x = tf.keras.layers.BatchNormalization()(x)
+    # x = tf.keras.layers.ELU()(x)
+    # x = tf.keras.layers.Conv1D(48,3,2,"same")(x)
+    # # x = tf.keras.layers.BatchNormalization()(x)
+    # x = tf.keras.layers.ELU()(x)
+    # #
+    # # x = base.se_block(x)
+    #
+    # x = tf.keras.layers.Conv1D(48, 3, 1, "same")(x)
+    # # x = tf.keras.layers.BatchNormalization()(x)
+    # x = tf.keras.layers.ELU()(x)
+    #
+    # x = base.se_block(x)
+    #
+    # x = tf.keras.layers.GlobalAveragePooling1D()(x)
 
-    x = tf.keras.layers.GlobalAveragePooling1D()(inputs)
-    x = tf.keras.layers.Dense(128, "elu")(x)
-    # x = tf.keras.layers.Dropout(0.3)(x)
-    x = tf.keras.layers.Dense(128, "elu")(x)
+    x = tf.keras.layers.Dense(64, "elu")(x)
+    # # x = tf.keras.layers.Dropout(0.3)(x)
+    x = tf.keras.layers.Dense(64, "elu")(x)
     # x = tf.keras.layers.Dropout(0.3)(x)
     # x = tf.keras.layers.GlobalAveragePooling1D()(x)
 
-    log_std = tf.keras.layers.Dense(4)(x)
-    mu = tf.keras.layers.Dense(4)(x)
+    log_std = tf.keras.layers.Dense(2)(x)
+    mu = tf.keras.layers.Dense(2)(x)
 
     # mu = tf.clip_by_value(tf.abs(mu), 0.1, 10) * (tf.abs(mu) / mu)
     log_std = tf.clip_by_value(log_std, -20, 2.)
@@ -82,9 +90,10 @@ def build_actor(dim=(30,4)):
 
 def build_critic(dim):
     states = tf.keras.layers.Input(dim, name="states")
-    action = tf.keras.layers.Input((4,), name="action")
+    action = tf.keras.layers.Input((2,), name="action")
 
     x = base.bese_net(states)
+    x = tf.keras.layers.Flatten()(x)
 
     x_action = tf.keras.layers.Concatenate()([x, action])
     q1 = output(x_action, "q1")
@@ -95,7 +104,7 @@ def build_critic(dim):
 
 
 class Model(tf.keras.Model):
-    def __init__(self, dim=(30, 4)):
+    def __init__(self, dim=(130, 4)):
         super(Model, self).__init__()
         self.actor = build_actor(dim)
         self.critic = build_critic(dim)
@@ -105,9 +114,9 @@ class Model(tf.keras.Model):
 class Agent(base.Base_Agent):
     def build(self):
         self.scale = 2
-        self.gamma = 0.2
+        self.gamma = 0.9
         self.types = "PG"
-        self.aciton_space = Box(-1,1, (4,))
+        self.aciton_space = Box(-1,1, (2,))
 
         self.model = Model()
         self.target_model = Model()
@@ -128,11 +137,11 @@ class Agent(base.Base_Agent):
     def sample(self, memory):
         states = np.array([a[0] for a in memory], np.float32)
         new_states = np.array([a[3] for a in memory], np.float32)
-        actions = np.array([a[1] for a in memory]).reshape((-1, 4))
+        actions = np.array([a[1] for a in memory]).reshape((-1, 2))
         rewards = np.array([a[2] for a in memory], np.float32).reshape((-1, 1))
 
-        _, _, target_v = self.target_model.critic.predict_on_batch([new_states, actions])
-        q1, q2, _ = self.model.critic.predict_on_batch([states, actions])
+        _, _, target_v = self.target_model.critic([new_states, actions])
+        q1, q2, _ = self.model.critic([states, actions])
 
         q_backup = rewards + self.gamma * target_v
         # e1 = tf
@@ -146,20 +155,15 @@ class Agent(base.Base_Agent):
 
         states = np.array([a[0][0] for a in replay], np.float32)
         new_states = np.array([a[0][3] for a in replay], np.float32)
-        actions = np.array([a[0][1] for a in replay]).reshape((-1, 4))
+        actions = np.array([a[0][1] for a in replay]).reshape((-1, 2))
         rewards = np.array([a[0][2] for a in replay], np.float32).reshape((-1, 1))
 
         ent_coef = tf.exp(self.model.log_ent_coef)
         ################################################################################
-        with tf.GradientTape() as p_tape:
-            d, policy, logp_pi = self.model.actor(states)
-            q1_pi, q2_pi, _ = self.model.critic([states, policy])
-            mean_q_pi = (q1_pi + q2_pi) / 2
-            # min_q_pi = tf.minimum(q1_pi, q2_pi)
-            # q1, q2, v = self.model.critic.predict_on_batch([states, actions])
-            p_loss = tf.reduce_mean(ent_coef * logp_pi * 2 - (q1_pi + q2_pi))
-            # p_loss = tf.reduce_mean(ent_coef * logp_pi - q1_pi) + tf.reduce_mean(ent_coef * logp_pi - q2_pi)
         ################################################################################
+        d, policy, logp_pi = self.model.actor(states)
+        q1_pi, q2_pi, _ = self.model.critic([states, policy])
+        mean_q_pi = (q1_pi + q2_pi) / 2
         with tf.GradientTape() as v_tape:
             _, _, target_v = self.target_model.critic([new_states, actions])
             q1, q2, v = self.model.critic([states, actions])
@@ -175,19 +179,19 @@ class Agent(base.Base_Agent):
             v_loss = tf.reduce_mean(self.mse(v_backup, v))
 
             v_loss += q1_loss + q2_loss
-        ################################################################################
-        with tf.GradientTape() as e_tape:
-            e_loss = -tf.reduce_mean(self.model.log_ent_coef * logp_pi + self.model.target_entropy)
-        ################################################################################
-
-        ae = np.array((q1_error + q2_error) * 0.5).reshape((-1,))
-        # print(ae)
-        self.memory.batch_update(tree_idx, ae)
 
         gradients = v_tape.gradient(v_loss, self.model.critic.trainable_variables)
         # gradients = [(tf.clip_by_value(grad, -500.0, 500.0))
         #              for grad in gradients]
         self.v_opt.apply_gradients(zip(gradients, self.model.critic.trainable_variables))
+        ################################################################################
+        with tf.GradientTape() as p_tape:
+            d, policy, logp_pi = self.model.actor(states)
+            q1_pi, q2_pi, _ = self.model.critic([states, policy])
+            # min_q_pi = tf.minimum(q1_pi, q2_pi)
+            # q1, q2, v = self.model.critic.predict_on_batch([states, actions])
+            p_loss = tf.reduce_mean(ent_coef * logp_pi * 3 - (q1_pi + q2_pi))
+            # p_loss = tf.reduce_mean(ent_coef * logp_pi - q1_pi) + tf.reduce_mean(ent_coef * logp_pi - q2_pi)
 
         if self.epoch >= 50 and self.epoch % 2 == 0:
             gradients = p_tape.gradient(p_loss, self.model.actor.trainable_variables)
@@ -196,20 +200,30 @@ class Agent(base.Base_Agent):
             self.p_opt.apply_gradients(zip(gradients, self.model.actor.trainable_variables))
 
             self.target_model.set_weights(
-                (1 - 0.01) * np.array(self.target_model.get_weights()) + 0.01 * np.array(
+                (1 - 0.005) * np.array(self.target_model.get_weights()) + 0.005 * np.array(
                     self.model.get_weights()))
+        ################################################################################
+
+        d, policy, logp_pi = self.model.actor(states)
+        with tf.GradientTape() as e_tape:
+            e_loss = -tf.reduce_mean(self.model.log_ent_coef * logp_pi + self.model.target_entropy)
 
         gradients = e_tape.gradient(e_loss, self.model.log_ent_coef)
         # gradients = (tf.clip_by_value(gradients, -1.0, 1.0))
         self.e_opt.apply_gradients([[gradients, self.model.log_ent_coef]])
+        ################################################################################
+
+        ae = np.array((q1_error + q2_error) * 0.5).reshape((-1,))
+        # print(ae)
+        self.memory.batch_update(tree_idx, ae)
 
         self.epoch += 1
 
     def lr_decay(self, i):
-        lr = self.lr * 0.0001 ** (i / 10000000)
+        lr = self.lr * 0.00001 ** (i / 10000000)
         self.e_opt.lr.assign(lr)
         self.p_opt.lr.assign(lr)
-        lr = 1e-3 * 0.0001 ** (i / 10000000)
+        lr = 1e-4 * 0.00001 ** (i / 10000000)
         self.v_opt.lr.assign(lr)
 
     # def gamma_updae(self, i):
@@ -222,7 +236,7 @@ class Agent(base.Base_Agent):
                 p = policy
                 # epislon = 0.1 if self.random % 10 != 0 else .5
                 # p = np.array([policy[i] if epislon < np.random.rand() else self.aciton_space.sample() for i in range(policy.shape[0])])
-                self.random += 1
+                # self.random += 1
             else:
                 p = deterministic_policy
         else:
@@ -232,12 +246,12 @@ class Agent(base.Base_Agent):
 
     def pg_action(self, action):
         q = action[:]
-        action, leverage, tp, lc = action[:, 0], [i * 1.25 if i > 0 else i * 0.5 for i in action[:, 1]], action[:,2], action[:,3]
-        # action = [2 if i >= -1.5 and i < -0.5 else 0 if i >= -0.5 and i < 0.5 else 1 for i in action * 1.5]
+        action, leverage = action[:, 0], [i * 1.25 if i > 0 else i * 0.25 for i in action[:, 1]]
+        action = [2 if i >= -1.5 and i < -0.5 else 0 if i >= -0.5 and i < 0.5 else 1 for i in action * 1.5]
         # action = [2 if i >= 0 and i < 0.5 else 0 if i >= 0.5 and i < 1 else 1 for i in np.abs(action) * 1.5]
         # action = [0 if i > 0.5 else 1 for i in np.abs(action)]
-        action = [0 if i >= 0 else 1 for i in action]
-        return action, leverage, lc, tp, q
+        # action = [0 if i >= 0 else 1 for i in action]
+        return action, leverage, q
 
     def save(self, i):
         self.restore = True
