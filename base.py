@@ -10,24 +10,39 @@ import random
 
 # huber loss
 
-def bese_net(inputs):
-    x1 = tf.keras.layers.Conv1D(32, 3, padding="same", activation="elu")(inputs)
-    x2 = tf.keras.layers.Conv1D(32, 3, dilation_rate=2, padding="same", activation="elu")(inputs)
-    x3 = tf.keras.layers.Conv1D(32, 3, dilation_rate=4, padding="same", activation="elu")(inputs)
-    x4 = tf.keras.layers.Conv1D(32, 3, dilation_rate=6, padding="same", activation="elu")(inputs)
-    # x5 = tf.keras.layers.Conv1D(32, 3, dilation_rate=5, padding="same", activation="elu")(inputs)
-    x6 = tf.keras.layers.Conv1D(32, 3, dilation_rate=6, padding="same", activation="elu")(inputs)
-    x7 = tf.keras.layers.Conv1D(32, 3, dilation_rate=7, padding="same", activation="elu")(inputs)
-    x8 = tf.keras.layers.Conv1D(32, 3, dilation_rate=8, padding="same", activation="elu")(inputs)
-    # x = tf.keras.layers.Concatenate()([x1, x2, x3, x4])# + x5 + x6
-    x = x1 + x2 + x3+ x4# + x5 + x6 + x7 + x8
-    b = tf.keras.layers.Conv1D(32, 1, padding="same", activation="elu")(inputs)
-    x = tf.keras.layers.Concatenate()([x, b])
-    #
-    x = tf.keras.layers.Conv1D(128, 3, padding="same", activation="elu")(x)
+def se_block(x, r=16):
+    sq = tf.keras.layers.GlobalAveragePooling1D()(x)
+    sq = tf.keras.layers.Reshape((1, x.shape[-1]))(sq)
 
-    x = tf.keras.layers.Flatten()(x)
-    # x = tf.keras.layers.GlobalAveragePooling1D()(x)
+    ex1 = tf.keras.layers.Dense(x.shape[-1] // r, "elu")(sq)
+    ex2 = tf.keras.layers.Dense(x.shape[-1], "sigmoid")(ex1)
+
+    return tf.keras.layers.Multiply()([x, ex2])
+
+def bese_net(inputs):
+    x = tf.keras.layers.Conv1D(32,3,2,activation="elu")(inputs)
+    x = tf.keras.layers.Conv1D(32,3,1,activation="elu")(x)
+    x = tf.keras.layers.Conv1D(64, 3, 1, "same", activation="elu")(x)
+
+    x1 = tf.keras.layers.Conv1D(96, 3, 2, activation="elu")(x)
+    x2 = tf.keras.layers.MaxPool1D(3,2)(x)
+    x = tf.keras.layers.Concatenate()([x1,x2])
+    # x = se_block(x)
+
+    x1 = tf.keras.layers.Conv1D(64, 1, 1, "same", activation="elu")(x)
+    x1 = tf.keras.layers.Conv1D(96, 3, 1, activation="elu")(x1)
+
+    x2 = tf.keras.layers.Conv1D(64, 1, 1, "same", activation="elu")(x)
+    x2 = tf.keras.layers.Conv1D(64, 7, 1, "same", activation="elu")(x2)
+    x2 = tf.keras.layers.Conv1D(96, 3, 1, activation="elu")(x2)
+    x = tf.keras.layers.Concatenate()([x1,x2])
+    # x = se_block(x)
+
+    # x1 = tf.keras.layers.MaxPool1D(2,2)(x)
+    # x2 = tf.keras.layers.Conv1D(198, 3, 2, activation="elu")(x)
+    # x = tf.keras.layers.Concatenate()([x1, x2])
+    x = se_block(x)
+
     return x
 
 class Base_Agent:
@@ -47,8 +62,6 @@ class Base_Agent:
 
         self.rewards = Reward(spread, leverage, pip_cost, min_lots, assets, available_assets_rate) if self.types == "DQN" else Reward2(spread, leverage, pip_cost, min_lots, assets, available_assets_rate)
         self.rewards.max_los_cut = -np.mean(self.atr) * pip_cost
-        self.rewards.lc = -np.mean(self.atr) * pip_cost
-        self.rewards.tp = np.abs(self.rewards.lc)
         self.memory = Memory(5000000)
 
     def build(self):
@@ -59,7 +72,7 @@ class Base_Agent:
         self.y, self.atr, self.scale_atr, self.high, self.low = np.load("target.npy")
 
     def mse(self, q_backup, q):
-        return tf.abs(q_backup - q) ** 1.5
+        return tf.abs(q_backup - q) ** 1.8
 
     def huber_loss(self, q_backup, q, delta=4):
         error = tf.abs(q_backup - q)
@@ -109,17 +122,17 @@ class Base_Agent:
         pass
 
     def run(self, train=True):
-        i = 10000000 if train else 6
+        i = 10000000 if train else 5
         start = 0 if not self.restore else self.i
-        start = start if train else i-1
+        start = start if train else 4
         reset = 0
         h = np.random.randint(self.x.shape[0] - self.x.shape[0] * 0.2 - self.step_size)
 
         for i in range(start, i):
-            if (i + 1) % 5 == 0:
+            if (i + 1) % 5 == 0 and train:
                 h = np.random.randint(
                     self.x.shape[0] - self.x.shape[0] * 0.2, self.x.shape[0] - self.step_size * 5)
-            elif i % 5 != 0:
+            elif i % 5 != 0 or not train:
                 h = np.random.randint(self.x.shape[0] - self.x.shape[0] * 0.2 - self.step_size)
 
             df = self.x[h:h + self.step_size]
@@ -133,11 +146,11 @@ class Base_Agent:
 
             action = self.policy(df, i)
             if self.types == "PG":
-                action, leverage, lc, tp, q = self.pg_action(action)
-                self.rewards.reward(trend, high, low, action, leverage, lc, tp, atr, scale_atr)
+                action, leverage, q = self.pg_action(action)
+                self.rewards.reward(trend, high, low, action, leverage, atr, scale_atr)
             elif self.types == "DQN":
                 self.rewards.reward(trend, high, low, action, atr, scale_atr)
-                q = action
+                q = np.array(action).reshape((-1,1))
 
             if (reset + 1) % 10000 == 0:
                 self.memory = Memory(5000000)
@@ -156,20 +169,24 @@ class Base_Agent:
                         # if rewards[index] == -np.inf:
                         #     rewards[index] = 0
 
-                rewards = rewards.astype(np.float32)
+                l = np.array(rewards != 0).reshape((-1,))
+                rewards = rewards[l]
+                df = df[l]
+                q = q[l]
 
-                for t in range(0, len(trend) - 1):
-                    tau = t - self.n + 1
-                    if tau >= 0:
-                        r = self.nstep(rewards[tau + 1:tau + self.n])
-                        memory.append((df[tau], q[tau], r, df[tau + self.n]))
-                    self.mem = memory
+                if len(rewards) > self.n:
+                    for t in range(0, len(rewards) - 1):
+                        tau = t - self.n + 1
+                        if tau >= 0:
+                            r = self.nstep(rewards[tau + 1:tau + self.n])
+                            memory.append((df[tau], q[tau], r, df[tau + self.n]))
+                        self.mem = memory
 
-                memory = random.sample(memory, int(self.step_size * 0.5))
-                ae = self.sample(memory).reshape((-1,))
+                    memory = random.sample(memory, min(self.step_size // 2, len(rewards) // 2))
+                    ae = self.sample(memory).reshape((-1,))
 
-                for e in range(len(ae)):
-                    self.memory.store(memory[e], ae[e])
+                    for e in range(len(ae)):
+                        self.memory.store(memory[e], ae[e])
 
             if reset > 50:
                 self.train()
@@ -184,6 +201,9 @@ class Base_Agent:
             if (i + 1) % 5 == 0 or not train:
                 prob = self.prob(action)
 
+                if self.rewards.assets < 0:
+                    break
+
                 print('action probability: buy={}, sell={}, hold={}'.format(
                     prob[0], prob[1], prob[2]))
                 print('epoch: {}, total assets:{}, growth_rate:{}'.format(
@@ -192,5 +212,3 @@ class Base_Agent:
 
             if (i + 1) % 500 == 0:
                 self.save(i)
-
-            self.rewards.reset()
