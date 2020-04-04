@@ -114,7 +114,7 @@ class Model(tf.keras.Model):
 class Agent(base.Base_Agent):
     def build(self):
         self.scale = 2
-        self.gamma = 0.9
+        self.gamma = 0.2
         self.types = "PG"
         self.aciton_space = Box(-1,1, (2,))
 
@@ -226,8 +226,8 @@ class Agent(base.Base_Agent):
         lr = 1e-4 * 0.00001 ** (i / 10000000)
         self.v_opt.lr.assign(lr)
 
-    # def gamma_updae(self, i):
-    #     self.gamma = 1 - (0.8 + (1 - 0.8) * (np.exp(-0.00001 * i)))
+    def gamma_updae(self, i):
+        self.gamma = max(1 - (0.1 + (1 - 0.1) * (np.exp(-0.00001 * i))), 0.2)
 
     def policy(self, state, i):
         if i > 100:
@@ -246,7 +246,12 @@ class Agent(base.Base_Agent):
 
     def pg_action(self, action):
         q = action[:]
-        action, leverage = action[:, 0], [i * 1.25 if i > 0 else i * 0.25 for i in action[:, 1]]
+        '''
+        lev = 400, max_lev=500, min_lev=200の場合
+        400 + 400 * 0.25 = 500
+        400 + 400 * -0.5 = 200
+        '''
+        action, leverage = action[:, 0], [i * 0.25 if i > 0 else i * 0.5 for i in action[:, 1]]
         action = [2 if i >= -1.5 and i < -0.5 else 0 if i >= -0.5 and i < 0.5 else 1 for i in action * 1.5]
         # action = [2 if i >= 0 and i < 0.5 else 0 if i >= 0.5 and i < 1 else 1 for i in np.abs(action) * 1.5]
         # action = [0 if i > 0.5 else 1 for i in np.abs(action)]
