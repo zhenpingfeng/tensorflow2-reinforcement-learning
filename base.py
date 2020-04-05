@@ -19,31 +19,29 @@ def se_block(x, r=16):
 
     return tf.keras.layers.Multiply()([x, ex2])
 
-def bese_net(inputs):
-    x = tf.keras.layers.Conv1D(32,3,2,activation="elu")(inputs)
-    x = tf.keras.layers.Conv1D(32,3,1,activation="elu")(x)
-    x = tf.keras.layers.Conv1D(64, 3, 1, "same", activation="elu")(x)
+def bese_net(i):
+    x1 = tf.keras.layers.Conv1D(48, 3, 1, "same", dilation_rate=1, activation="elu")(i)
+    x2 = tf.keras.layers.Conv1D(48, 3, 1, "same", dilation_rate=3, activation="elu")(i)
+    x3 = tf.keras.layers.Conv1D(48, 3, 1, "same", dilation_rate=5, activation="elu")(i)
+    x4 = tf.keras.layers.Conv1D(48, 3, 1, "same", dilation_rate=7, activation="elu")(i)
+    x = tf.keras.layers.Add()([x1,x2,x3,x4])
 
-    x1 = tf.keras.layers.Conv1D(96, 3, 2, activation="elu")(x)
-    x2 = tf.keras.layers.MaxPool1D(3,2)(x)
-    x = tf.keras.layers.Concatenate()([x1,x2])
-    # x = se_block(x)
-
-    x1 = tf.keras.layers.Conv1D(64, 1, 1, "same", activation="elu")(x)
-    x1 = tf.keras.layers.Conv1D(96, 3, 1, activation="elu")(x1)
-
-    x2 = tf.keras.layers.Conv1D(64, 1, 1, "same", activation="elu")(x)
-    x2 = tf.keras.layers.Conv1D(64, 7, 1, "same", activation="elu")(x2)
-    x2 = tf.keras.layers.Conv1D(96, 3, 1, activation="elu")(x2)
-    x = tf.keras.layers.Concatenate()([x1,x2])
-    # x = se_block(x)
-
-    # x1 = tf.keras.layers.MaxPool1D(2,2)(x)
-    # x2 = tf.keras.layers.Conv1D(198, 3, 2, activation="elu")(x)
-    # x = tf.keras.layers.Concatenate()([x1, x2])
+    x5 = tf.keras.layers.Conv1D(48,1,1,"same", activation="elu")(i)
+    x = tf.keras.layers.Concatenate()([x,x5])
     x = se_block(x)
 
+    # x1 = tf.keras.layers.Conv1D(48, 3, 1, "same", dilation_rate=1, activation="elu")(x)
+    # x2 = tf.keras.layers.Conv1D(48, 3, 1, "same", dilation_rate=3, activation="elu")(x)
+    # x3 = tf.keras.layers.Conv1D(48, 3, 1, "same", dilation_rate=5, activation="elu")(x)
+    # x4 = tf.keras.layers.Conv1D(48, 3, 1, "same", dilation_rate=7, activation="elu")(x)
+    # x = tf.keras.layers.Add()([x1,x2,x3,x4])
+    #
+    # x5 = tf.keras.layers.Conv1D(48,1,1,"same", activation="elu")(x)
+    # x = tf.keras.layers.Concatenate()([x,x5])
+    # x = se_block(x)
+
     return x
+
 
 class Base_Agent:
     def __init__(self, spread, pip_cost, leverage=500, min_lots=0.01, assets=1000000, available_assets_rate=0.4,
@@ -72,7 +70,7 @@ class Base_Agent:
         self.y, self.atr, self.scale_atr, self.high, self.low = np.load("target.npy")
 
     def mse(self, q_backup, q):
-        return tf.abs(q_backup - q) ** 1.8
+        return tf.abs(q_backup - q) ** 2
 
     def huber_loss(self, q_backup, q, delta=4):
         error = tf.abs(q_backup - q)
@@ -86,13 +84,16 @@ class Base_Agent:
     def sample(self, memory):
         pass
 
-    def train(self):
+    def train(self, states=None):
         pass
 
     def lr_decay(self, i):
         pass
 
     def gamma_updae(self, i):
+        pass
+
+    def update_w(self, i):
         pass
 
     def nstep(self, r):
@@ -125,15 +126,15 @@ class Base_Agent:
         i = 10000000 if train else 5
         start = 0 if not self.restore else self.i
         start = start if train else 4
-        reset = 0
         h = np.random.randint(self.x.shape[0] - self.x.shape[0] * 0.2 - self.step_size)
+        train_step = self.x.shape[0] - self.x.shape[0] * 0.2 - self.step_size
+        test_step = self.x.shape[0] - self.x.shape[0] * 0.2, self.x.shape[0] - self.step_size * 5
 
         for i in range(start, i):
             if (i + 1) % 5 == 0 and train:
-                h = np.random.randint(
-                    self.x.shape[0] - self.x.shape[0] * 0.2, self.x.shape[0] - self.step_size * 5)
+                h = np.random.randint(test_step[0], test_step[1])
             elif i % 5 != 0 or not train:
-                h = np.random.randint(self.x.shape[0] - self.x.shape[0] * 0.2 - self.step_size)
+                h = np.random.randint(train_step)
 
             df = self.x[h:h + self.step_size]
             trend = self.y[h:h + self.step_size]
@@ -141,8 +142,6 @@ class Base_Agent:
             scale_atr = self.scale_atr[h:h + self.step_size]
             high = self.high[h:h + self.step_size]
             low = self.low[h:h + self.step_size]
-
-            memory = deque()
 
             action = self.policy(df, i)
             if self.types == "PG":
@@ -152,48 +151,38 @@ class Base_Agent:
                 self.rewards.reward(trend, high, low, action, atr, scale_atr)
                 q = np.array(action).reshape((-1,1))
 
-            if (reset + 1) % 10000 == 0:
-                self.memory = Memory(5000000)
-                reset = 0
+            # # memory append
+            if (i + 1) % 5 != 0:
+                if True:
+                    rewards = np.array(self.rewards.total_gain)
+                    r1, r2 = rewards[1:], rewards[:-1]
+                    rewards = [0]
+                    rewards = np.append(rewards, np.log(r1 / r2) * 100)
+                    rewards = (rewards * 10 ** self.scale).astype(np.int32) * (10 ** -2)
 
-            # memory append
-            if (i + 1) % 5 != 0 and self.rewards.growth_rate:
-                rewards = np.zeros(len(self.rewards.growth_rate))
-                for index, r in enumerate(self.rewards.total_gain):
-                    if index == 0:
-                        rewards[index] = 0
-                    else:
-                        # rewards[index] = r - self.rewards.total_gain[index - 1]
-                        rewards[index] = (np.log(r / self.rewards.total_gain[index - 1]) * 100)
-                        rewards[index] = int(rewards[index] * 10 ** self.scale) * (10 ** -2)
-                        # if rewards[index] == -np.inf:
-                        #     rewards[index] = 0
+                    assert len(rewards) == df.shape[0]
+                    l = np.array(rewards != 0).reshape((-1,))
+                    rewards = rewards[l]
+                    df = df[l]
+                    q = q[l]
+                #
+                    if len(rewards) > self.n:
+                        memory = []
+                        for t in range(len(rewards) - self.n):
+                            if 0.2 > np.random.rand():
+                                e = df[t], q[t], self.nstep(rewards[t:t + self.n]), df[t + self.n]
+                                memory.append(e)
 
-                l = np.array(rewards != 0).reshape((-1,))
-                rewards = rewards[l]
-                df = df[l]
-                q = q[l]
-
-                if len(rewards) > self.n:
-                    for t in range(0, len(rewards) - 1):
-                        tau = t - self.n + 1
-                        if tau >= 0:
-                            r = self.nstep(rewards[tau + 1:tau + self.n])
-                            memory.append((df[tau], q[tau], r, df[tau + self.n]))
-                        self.mem = memory
-
-                    memory = random.sample(memory, min(self.step_size // 2, len(rewards) // 2))
-                    ae = self.sample(memory).reshape((-1,))
-
-                    for e in range(len(ae)):
-                        self.memory.store(memory[e], ae[e])
-
-            if reset > 50:
-                self.train()
-            self.lr_decay(i)
-            self.gamma_updae(i)
-
-            reset += 1
+                        abs_error = self.sample(memory).reshape((-1,))
+                        for t in range(len(abs_error)):
+                            self.memory.store(memory[t], abs_error[t])
+                            #
+            # #
+                if i > 50:
+                    self.train()
+                self.lr_decay(i)
+                self.gamma_updae(i)
+                self.update_w(i)
 
             if i % 2000 == 0:
                 clear_output()

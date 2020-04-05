@@ -22,7 +22,13 @@ class SumTree(object):
         self.data[self.data_pointer] = data
 
         # Update the leaf
-        self.update(tree_index, priority)
+        change = priority - self.tree[tree_index]
+        self.tree[tree_index] = priority
+        while tree_index != 0:  # this method is faster than the recursive loop in the reference code
+            tree_index = (tree_index - 1) // 2
+            self.tree[tree_index] += change
+
+        # self.update(tree_index, priority)
 
         # Add 1 to data_pointer
         self.data_pointer += 1
@@ -32,14 +38,14 @@ class SumTree(object):
 
     def update(self, tree_index, priority):
         # Change = new priority score - former priority score
-        change = priority - self.tree[tree_index]
+        # change = priority - self.tree[tree_index]
         self.tree[tree_index] = priority
 
         # then propagate the change through tree
-        while tree_index != 0:  # this method is faster than the recursive loop in the reference code
-
-            tree_index = (tree_index - 1) // 2
-            self.tree[tree_index] += change
+        # while tree_index != 0:  # this method is faster than the recursive loop in the reference code
+        #
+        #     tree_index = (tree_index - 1) // 2
+        #     self.tree[tree_index] += change
 
     def get_leaf(self, v):
 
@@ -83,7 +89,7 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
 
     PER_b_increment_per_sampling = 0.001
 
-    absolute_error_upper = 100.  # clipped abs error
+    absolute_error_upper = 1000.  # clipped abs error
 
     def __init__(self, capacity):
         # Making the tree
@@ -157,8 +163,8 @@ class Memory(object):  # stored as ( s, a, r, s_ ) in SumTree
 
     def batch_update(self, tree_idx, abs_errors):
         abs_errors += self.PER_e  # convert to abs and avoid 0
-        clipped_errors = np.minimum(abs_errors, self.absolute_error_upper)
-        ps = np.power(clipped_errors, self.PER_a)
+        # clipped_errors = np.minimum(abs_errors, self.absolute_error_upper)
+        ps = np.power(abs_errors, self.PER_a)
 
         for ti, p in zip(tree_idx, ps):
             self.tree.update(ti, p)
