@@ -41,37 +41,21 @@ def apply_squashing_func(mu_, pi_, logp_pi):
 
 
 def output(x, name):
-    x = tf.keras.layers.Dense(128, "elu")(x)
+    # x = tf.keras.layers.GRU(128)(x)
+    x = tf.keras.layers.Dense(512, "elu")(x)
     # x = tf.keras.layers.Dropout(0.3)(x)
     return tf.keras.layers.Dense(1, name=name)(x)
 
 
 def build_actor(dim=(30,4)):
     inputs = tf.keras.layers.Input(dim)
-    x = tf.keras.layers.Flatten()(inputs)
-    # #
-    # x = tf.keras.layers.Conv1D(48,3,2,"same")(inputs)
-    # # x = tf.keras.layers.BatchNormalization()(x)
-    # x = tf.keras.layers.ELU()(x)
-    # x = tf.keras.layers.Conv1D(48,3,2,"same")(x)
-    # # x = tf.keras.layers.BatchNormalization()(x)
-    # x = tf.keras.layers.ELU()(x)
-    # #
-    # # x = base.se_block(x)
-    #
-    # x = tf.keras.layers.Conv1D(48, 3, 1, "same")(x)
-    # # x = tf.keras.layers.BatchNormalization()(x)
-    # x = tf.keras.layers.ELU()(x)
-    #
-    # x = base.se_block(x)
-    #
-    # x = tf.keras.layers.GlobalAveragePooling1D()(x)
+    # x = tf.keras.layers.Flatten()(inputs)
 
-    x = tf.keras.layers.Dense(64, "elu")(x)
-    # # x = tf.keras.layers.Dropout(0.3)(x)
-    x = tf.keras.layers.Dense(64, "elu")(x)
-    # x = tf.keras.layers.Dropout(0.3)(x)
-    # x = tf.keras.layers.GlobalAveragePooling1D()(x)
+    x = tf.keras.layers.GRU(256, return_sequences=True)(inputs)
+    x = tf.keras.layers.GRU(128)(x)
+
+    # x = tf.keras.layers.Dense(32, "elu")(x)
+    # x = tf.keras.layers.Dense(32, "elu")(x)
 
     log_std = tf.keras.layers.Dense(2)(x)
     mu = tf.keras.layers.Dense(2)(x)
@@ -93,7 +77,9 @@ def build_critic(dim):
     action = tf.keras.layers.Input((2,), name="action")
 
     x = base.bese_net(states)
-    x = tf.keras.layers.Flatten()(x)
+    x = tf.keras.layers.GRU(128, dropout=0.2, recurrent_dropout=0.2)(x)
+    # x = tf.keras.layers.Flatten()(x)
+    # x = tf.keras.layers.Flatten()(x)
 
     x_action = tf.keras.layers.Concatenate()([x, action])
     q1 = output(x_action, "q1")
@@ -101,7 +87,6 @@ def build_critic(dim):
     v = output(x, "v")
 
     return tf.keras.Model([states, action], [q1, q2, v])
-
 
 class Model(tf.keras.Model):
     def __init__(self, dim=(130, 4)):
@@ -113,7 +98,7 @@ class Model(tf.keras.Model):
 
 class Agent(base.Base_Agent):
     def build(self):
-        self.scale = 2
+        self.scale = 3
         self.gamma = 0.2
         self.types = "PG"
         self.aciton_space = Box(-1,1, (2,))
@@ -126,10 +111,14 @@ class Agent(base.Base_Agent):
             self.model.load_weights("sac")
             self.target_model.load_weights("sac")
         else:
+            self.v_opt = tf.keras.optimizers.Nadam(1e-4)
+            self.p_opt = tf.keras.optimizers.Nadam(self.lr)
+            self.model.actor.compile(self.p_opt, "mse")
+            self.model.critic.compile(self.v_opt, "mse")
             self.target_model.set_weights(self.model.get_weights())
 
-        self.v_opt = tf.keras.optimizers.Nadam(1e-4)
-        self.p_opt = tf.keras.optimizers.Nadam(self.lr)
+        # self.v_opt = tf.keras.optimizers.Nadam(1e-4)
+        # self.p_opt = tf.keras.optimizers.Nadam(self.lr)
         self.e_opt = tf.keras.optimizers.Nadam(self.lr)
 
         self.epoch = self.i if self.restore else 0
@@ -140,11 +129,10 @@ class Agent(base.Base_Agent):
         actions = np.array([a[1] for a in memory]).reshape((-1, 2))
         rewards = np.array([a[2] for a in memory], np.float32).reshape((-1, 1))
 
-        _, _, target_v = self.target_model.critic([new_states, actions])
-        q1, q2, _ = self.model.critic([states, actions])
+        _, _, target_v = self.target_model.critic.predict_on_batch([new_states, actions])
+        q1, q2, _ = self.model.critic.predict_on_batch([states, actions])
 
         q_backup = rewards + self.gamma * target_v
-        # e1 = tf
         e1 = self.mse(q_backup, q1)
         e2 = self.mse(q_backup, q2)
 
@@ -155,92 +143,69 @@ class Agent(base.Base_Agent):
 
         states = np.array([a[0][0] for a in replay], np.float32)
         new_states = np.array([a[0][3] for a in replay], np.float32)
-        actions = np.array([a[0][1] for a in replay]).reshape((-1, 2))
+        actions = np.array([a[0][1] for a in replay], np.float32).reshape((-1, 2))
         rewards = np.array([a[0][2] for a in replay], np.float32).reshape((-1, 1))
 
+        d, policy, logp_pi = self.model.actor.predict_on_batch(states)
         ent_coef = tf.exp(self.model.log_ent_coef)
-        ################################################################################
-        ################################################################################
-        d, policy, logp_pi = self.model.actor(states)
-        q1_pi, q2_pi, _ = self.model.critic([states, policy])
+        q1_pi, q2_pi, _ = self.model.critic.predict_on_batch([states, policy])
         mean_q_pi = (q1_pi + q2_pi) / 2
-        with tf.GradientTape() as v_tape:
-            _, _, target_v = self.target_model.critic([new_states, actions])
-            q1, q2, v = self.model.critic([states, actions])
+        _, _, target_v = self.target_model.critic.predict_on_batch([new_states, actions])
+        q_backup = rewards + self.gamma * target_v
+        v_backup = mean_q_pi - ent_coef * logp_pi
+        # # ################################################################################
+        with tf.GradientTape() as tape:
+            q1,q2,v = self.model.critic([states, actions])
+            loss = tf.reduce_mean((q_backup - q1) ** 2) + tf.reduce_mean((q_backup - q2) ** 2) + tf.reduce_mean((v_backup - v) ** 2)
+        gradient = tape.gradient(loss, self.model.critic.trainable_variables)
+        self.model.critic.optimizer.apply_gradients(zip(gradient, self.model.critic.trainable_variables))
+        # ################################################################################
+        if self.epoch % 4 == 0:
+            with tf.GradientTape() as p_tape:
+                d, policy, logp_pi = self.model.actor(states)
+                q1_pi, q2_pi, _ = self.model.critic([states, policy])
+                p_loss = tf.reduce_mean(ent_coef * logp_pi * 3 - (q1_pi + q2_pi))
 
-            q_backup = rewards + self.gamma * target_v
-
-            q1_error = self.mse(q_backup, q1)
-            q2_error = self.mse(q_backup, q2)
-            q1_loss = tf.reduce_mean(q1_error)
-            q2_loss = tf.reduce_mean(q2_error)
-
-            v_backup = mean_q_pi - ent_coef * logp_pi
-            v_loss = tf.reduce_mean(self.mse(v_backup, v))
-
-            v_loss += q1_loss + q2_loss
-
-        gradients = v_tape.gradient(v_loss, self.model.critic.trainable_variables)
-        # gradients = [(tf.clip_by_value(grad, -500.0, 500.0))
-        #              for grad in gradients]
-        self.v_opt.apply_gradients(zip(gradients, self.model.critic.trainable_variables))
-        ################################################################################
-        with tf.GradientTape() as p_tape:
-            d, policy, logp_pi = self.model.actor(states)
-            q1_pi, q2_pi, _ = self.model.critic([states, policy])
-            # min_q_pi = tf.minimum(q1_pi, q2_pi)
-            # q1, q2, v = self.model.critic.predict_on_batch([states, actions])
-            p_loss = tf.reduce_mean(ent_coef * logp_pi * 3 - (q1_pi + q2_pi))
-            # p_loss = tf.reduce_mean(ent_coef * logp_pi - q1_pi) + tf.reduce_mean(ent_coef * logp_pi - q2_pi)
-
-        if self.epoch >= 50 and self.epoch % 2 == 0:
             gradients = p_tape.gradient(p_loss, self.model.actor.trainable_variables)
-            # gradients = [(tf.clip_by_value(grad, -1., 1.))
-            #              for grad in gradients]
-            self.p_opt.apply_gradients(zip(gradients, self.model.actor.trainable_variables))
+            self.model.actor.optimizer.apply_gradients(zip(gradients, self.model.actor.trainable_variables))
 
             self.target_model.set_weights(
-                (1 - 0.005) * np.array(self.target_model.get_weights()) + 0.005 * np.array(
+                (1 - 0.01) * np.array(self.target_model.get_weights()) + 0.01 * np.array(
                     self.model.get_weights()))
-        ################################################################################
+            ##############################################################################
+            with tf.GradientTape() as e_tape:
+                e_loss = -tf.reduce_mean(self.model.log_ent_coef * logp_pi + self.model.target_entropy)
 
-        d, policy, logp_pi = self.model.actor(states)
-        with tf.GradientTape() as e_tape:
-            e_loss = -tf.reduce_mean(self.model.log_ent_coef * logp_pi + self.model.target_entropy)
+            gradients = e_tape.gradient(e_loss, self.model.log_ent_coef)
+            # gradients = (tf.clip_by_value(gradients, -1.0, 1.0))
+            self.e_opt.apply_gradients([[gradients, self.model.log_ent_coef]])
+            ################################################################################
 
-        gradients = e_tape.gradient(e_loss, self.model.log_ent_coef)
-        # gradients = (tf.clip_by_value(gradients, -1.0, 1.0))
-        self.e_opt.apply_gradients([[gradients, self.model.log_ent_coef]])
-        ################################################################################
-
-        ae = np.array((q1_error + q2_error) * 0.5).reshape((-1,))
-        # print(ae)
-        self.memory.batch_update(tree_idx, ae)
+        abs_error = tf.abs(q_backup - q1).numpy().reshape((-1,))
+        # print(print(abs_error))
+        self.memory.batch_update(tree_idx, abs_error)
 
         self.epoch += 1
 
     def lr_decay(self, i):
         lr = self.lr * 0.00001 ** (i / 10000000)
         self.e_opt.lr.assign(lr)
-        self.p_opt.lr.assign(lr)
+        self.model.actor.optimizer.lr.assign(lr)
         lr = 1e-4 * 0.00001 ** (i / 10000000)
-        self.v_opt.lr.assign(lr)
+        self.model.critic.optimizer.lr.assign(lr)
 
     def gamma_updae(self, i):
-        self.gamma = max(1 - (0.1 + (1 - 0.1) * (np.exp(-0.00001 * i))), 0.2)
+        self.gamma = max(1 - (0.1 + (1 - 0.1) * (np.exp(-0.0005 * i))), 0.2)
 
     def policy(self, state, i):
-        if i > 100:
-            deterministic_policy, policy, _ = self.model.actor.predict_on_batch(state)
-            if (i + 1) % 5 != 0:
-                p = policy
-                # epislon = 0.1 if self.random % 10 != 0 else .5
-                # p = np.array([policy[i] if epislon < np.random.rand() else self.aciton_space.sample() for i in range(policy.shape[0])])
-                # self.random += 1
-            else:
-                p = deterministic_policy
+        deterministic_policy, policy, _ = self.model.actor.predict_on_batch(state)
+        if (i + 1) % 5 != 0:
+            p = policy
+            # epislon = 0.1 if self.random % 10 != 0 else .5
+            # p = np.array([policy[i] if epislon < np.random.rand() else self.aciton_space.sample() for i in range(policy.shape[0])])
+            # self.random += 1
         else:
-            p = np.array([self.aciton_space.sample() for _ in range(state.shape[0])])
+            p = deterministic_policy
 
         return p
 
