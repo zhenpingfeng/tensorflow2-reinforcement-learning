@@ -5,19 +5,31 @@ import tensorflow as tf
 
 import base
 
+def se_block(x):
+    sq = tf.keras.layers.GlobalAveragePooling1D()(x)
+    sq = tf.keras.layers.Reshape((1, x.shape[-1]))(sq)
+
+    ex1 = tf.keras.layers.Dense(x.shape[-1] // 7, "elu")(sq)
+    ex2 = tf.keras.layers.Dense(x.shape[-1], "sigmoid")(ex1)
+
+    return tf.keras.layers.Multiply()([x, ex2])
 
 def output(x, num):
     x = tf.keras.layers.Dense(512, "elu")(x)
-    out = [tf.keras.layers.Dense(2)(x) for _ in range(num)]
-    out = tf.keras.layers.concatenate(out)
+    out = [tf.keras.layers.Dense(num)(x) for _ in range(3)]
+    out = [tf.reshape(out, (-1, 1, num)) for out in out]
 
-    return tf.reshape(out, (-1, 2, num))
+    out = tf.keras.layers.concatenate(out, 1)
+    return out
+
+    # return tf.reshape(out, (-1, 3, num))
 
 
-def build_model(n=200, dim=(30, 4)):
+def build_model(n=200, dim=(130, 4)):
     inputs = tf.keras.layers.Input(dim)
 
     x = base.bese_net(inputs)
+    x = tf.keras.layers.Flatten()(x)
 
     out = output(x, n)
 
@@ -46,8 +58,9 @@ class Agent(base.Base_Agent):
     def loss(self, states, new_states, rewards, actions):
         q = self.model(states)
         target_q = self.target_model(new_states)
-        arg_q = np.sum(self.model(new_states), -1).reshape((-1, 2))
-        arg_q = [np.argmax(i) if 0.05 < np.random.rand() else np.random.randint(2) for i in arg_q]
+        arg_q = np.sum(self.model(new_states), -1).reshape((-1, 3))
+        arg_q = np.argmax(arg_q, -1)
+        # arg_q = [np.argmax(i) if 0.05 < np.random.rand() else np.random.randint(3) for i in arg_q]
 
         q_backup = q.numpy()
 
@@ -69,7 +82,7 @@ class Agent(base.Base_Agent):
         return self.loss(states, new_states, rewards, actions).numpy()
 
     def train(self):
-        tree_idx, replay = self.memory.sample(128)
+        tree_idx, replay = self.memory.sample(256)
 
         states = np.array([a[0][0] for a in replay], np.float32)
         new_states = np.array([a[0][3] for a in replay], np.float32)
@@ -92,6 +105,10 @@ class Agent(base.Base_Agent):
         lr = self.lr * 0.0001 ** (i / 10000000)
         self.model.optimizer.lr.assign(lr)
 
+    def update_w(self, i):
+        if (i + 1) % 200 == 0:
+            self.target_model.set_weights(self.model.get_weights())
+
     def policy(self, state, i):
         epsilon = self.epsilon + (1 - self.epsilon) * (np.exp(-0.0001 * i))
         q = np.sum(self.model.predict_on_batch(state), -1)
@@ -100,7 +117,7 @@ class Agent(base.Base_Agent):
         if (i + 1) % 5 != 0:
             epsilon = epsilon if self.random % 5 != 0 else 1.
             q += epsilon * np.random.randn(q.shape[0], q.shape[1])
-            action = np.argmax(q, 1)
+            action = [np.argmax(i) if 0.1 < np.random.rand() else np.random.randint(3) for i in q]
             self.random += 1
         else:
             action = np.argmax(q, -1)
