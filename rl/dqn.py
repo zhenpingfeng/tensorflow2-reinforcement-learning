@@ -4,6 +4,8 @@ import tensorflow as tf
 
 import base
 import numpy as np
+from env import Env
+
 
 def softmax(x):
     """Compute softmax values for each sets of scores in x."""
@@ -20,7 +22,7 @@ def build_model(dim=(130, 4)):
 
     # tensor_action, tensor_validation = tf.split(x, 2, 1)
     x = tf.keras.layers.Dense(512, "elu")(x)
-    out = tf.keras.layers.Dense(3, name="out")(x)
+    out = tf.keras.layers.Dense(3, name="q")(x)
     # v = tf.keras.layers.Dense(328, "elu", kernel_initializer="he_normal")(tensor_validation)
     # # v = tf.keras.layers.BatchNormalization()(v)
     # v = tf.keras.layers.Dense(1, name="v")(v)
@@ -32,23 +34,35 @@ def build_model(dim=(130, 4)):
     return tf.keras.Model(inputs, out)
 
 ################################################################################################################################
+env = Env(types=1)
 
-class Agent(base.Base_Agent):
+
+class Agent(base.Agent):
+    def __init__(self, restore=False, lr=1e-3, n=1, env=env, epsilon=0.05):
+        super(Agent, self).__init__(
+            restore=restore,
+            lr=lr,
+            env=env,
+            n=n
+        )
+
+        self.epsilon = epsilon
+        self.random = 0
+
     def build(self):
-        self.types = "DQN"
-        self.gamma = 0.9
-        self.epsilon = 0.05
-        self.scale = 3
-
         if self.restore:
             self.i = np.load("dqn_epoch.npy")
             self.model = tf.keras.models.load_model("dqn.h5")
             self.target_model = tf.keras.models.load_model("dqn.h5")
         else:
             self.model = build_model()
-            self.model.compile("nadam", "mse")
+            opt = tf.keras.optimizers.Nadam(self.lr)
+            self.model.compile(opt, "mse")
             self.target_model = build_model()
             self.target_model.set_weights(self.model.get_weights())
+
+        self.q = tf.keras.backend.function(self.model.get_layer("inputs").input, self.model.get_layer("q").output)
+        self.targe_q = tf.keras.backend.function(self.target_model.get_layer("inputs").input, self.target_model.get_layer("q").output)
 
     def loss(self, states, new_states, rewards, actions):
         q = self.model(states)
@@ -69,11 +83,19 @@ class Agent(base.Base_Agent):
         actions = np.array([a[1] for a in memory]).reshape((-1, 1))
         rewards = np.array([a[2] for a in memory], np.float32).reshape((-1, 1))
 
-        q_backup, q = self.loss(states, new_states, rewards, actions)
+        q = self.q(states)
+        target_q = self.targe_q(new_states).numpy()
+        arg_q = self.q(new_states).numpy()
+        arg_q = np.argmax(arg_q, -1)
 
-        return tf.reduce_sum(self.mse(q_backup, q), -1).numpy().reshape((-1,))
+        q_backup = q.numpy()
 
-    def train(self):
+        for i in range(rewards.shape[0]):
+            q_backup[i, actions[i]] = rewards[i] + self.gamma * target_q[i, arg_q[i]]
+
+        return tf.reduce_sum((q_backup - q) ** 2, -1).numpy().reshape((-1,))
+
+    def train(self, i):
         tree_idx, replay = self.memory.sample(128)
 
         states = np.array([a[0][0] for a in replay], np.float32)
@@ -81,9 +103,18 @@ class Agent(base.Base_Agent):
         actions = np.array([a[0][1] for a in replay]).reshape((-1, 1))
         rewards = np.array([a[0][2] for a in replay], np.float32).reshape((-1, 1))
 
+
+        target_q = self.targe_q(new_states).numpy()
+        arg_q = self.q(new_states).numpy()
+        arg_q = np.argmax(arg_q, -1)
+
         with tf.GradientTape() as tape:
-            q_backup, q = self.loss(states, new_states, rewards, actions)
-            error = self.mse(q_backup, q)
+            q = self.model(states)
+            q_backup = q.numpy()
+            for i in range(rewards.shape[0]):
+                q_backup[i, actions[i]] = rewards[i] + self.gamma * target_q[i, arg_q[i]]
+
+            error = (q_backup - q) ** 2
             loss = tf.reduce_mean(error)
 
         ae = tf.reduce_sum(error, -1).numpy().reshape((-1,)) + 1e-10
@@ -91,26 +122,23 @@ class Agent(base.Base_Agent):
         self.memory.batch_update(tree_idx, ae)
 
         gradients = tape.gradient(loss, self.model.trainable_variables)
-        # gradients = [(tf.clip_by_value(grad, -100.0, 100.0))
-        #              for grad in gradients]
         self.model.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
 
-    def lr_decay(self, i):
-        lr = self.lr * 0.0001 ** (i / 10000000)
-        self.model.optimizer.lr.assign(lr)
+        if (i + 1) % 200 == 0:
+            self.target_model.set_weights(self.model.get_weights())
 
-    # def gamma_updae(self, i):
-    #     self.gamma = 1 - (0.6 + (1 - 0.6) * (np.exp(-0.0001 * i)))
+    # def lr_decay(self, i):
+    #     lr = self.lr * 0.0001 ** (i / 10000000)
+    #     self.model.optimizer.lr.assign(lr)
 
-    def policy(self, state, i):
+    def action(self, state, i):
         epsilon = self.epsilon + (1 - self.epsilon) * (np.exp(-0.0001 * i))
-        q = self.model(state).numpy()
+        q = self.q(state).numpy()
 
         if (i + 1) % 5 != 0:
             q = np.abs(q) / np.sum(np.abs(q), 1).reshape((-1, 1)) * (np.abs(q) / q)
             epsilon = epsilon if self.random % 5 != 0 else 0.5
             q += epsilon * np.random.randn(q.shape[0], q.shape[1])
-            # action = np.argmax(q, 1)
             action = [np.argmax(i) if 0.1 < np.random.rand() else np.random.randint(3) for i in q]
             self.random += 1
         else:
