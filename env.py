@@ -13,7 +13,7 @@ class Env:
         self.memory = Memory(5000000)
 
         self.types = types
-        reward = Reward if type==1 else Reward2
+        reward = Reward if types==1 else Reward2
         self.rewards = reward(spread, leverage, pip_cost, min_lots, assets, available_assets_rate)
         self.rewards.max_los_cut = -np.mean(self.atr) * pip_cost
 
