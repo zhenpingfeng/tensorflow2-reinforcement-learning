@@ -145,7 +145,10 @@ class Agent:
             if (i + 1) % 5 == 0 or not train:
                 prob = pd.Series(action)
                 prob = prob.value_counts() / prob.value_counts().sum()
-                self.p = prob
+                if len(prob) != 3:
+                    for p in range(3):
+                        if p not in prob:
+                            prob[p] = 0
 
                 print('action probability: buy={}, sell={}, hold={}'.format(
                     prob[0], prob[1], prob[2]))
