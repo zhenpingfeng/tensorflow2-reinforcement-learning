@@ -49,7 +49,7 @@ class IndependentDense(tf.keras.layers.Dense):
             outputs = gen_math_ops.mat_mul(inputs, w)
         if self.use_bias:
             b_epsilon = tf.random.normal([self.units, ])
-            b = self.b_mu + self.bias + self.b_sigma * self.bias * (b_epsilon * self.bias)
+            b = self.b_mu * self.bias + self.b_sigma * self.bias * (b_epsilon * self.bias)
             outputs = nn.bias_add(outputs, b)
         if self.activation is not None:
             return self.activation(outputs)  # pylint: disable=not-callable
@@ -84,7 +84,7 @@ class FactorisedDense(tf.keras.layers.Dense):
 
         inputs = ops.convert_to_tensor(inputs)
         rank = rank(inputs)
-        p, q = tf.random.normal((self.last_dim, 1)), tf.random.normal((1, self.last_dim))
+        p, q = tf.random.normal((self.last_dim, 1)), tf.random.normal((1, self.units))
         p, q = (tf.math.sign(p) * tf.abs(p) ** 0.5), (tf.math.sign(q) * tf.abs(q) ** 0.5)
         w_epsilon = p * q
         w = self.w_mu * self.kernel + self.w_sigma * self.kernel * (w_epsilon * self.kernel)
@@ -101,7 +101,7 @@ class FactorisedDense(tf.keras.layers.Dense):
             outputs = gen_math_ops.mat_mul(inputs, w)
         if self.use_bias:
             b_epsilon = tf.squeeze(q)
-            b = self.b_mu + self.bias + self.b_sigma * self.bias * (b_epsilon * self.bias)
+            b = self.b_mu * self.bias + self.b_sigma * self.bias * (b_epsilon * self.bias)
             outputs = nn.bias_add(outputs, b)
         if self.activation is not None:
             return self.activation(outputs)  # pylint: disable=not-callable
