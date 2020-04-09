@@ -3,3 +3,4 @@ rl agent
 * dqn
 * qr dqn
 * noisy dense
+* rainbow (no noisy)
