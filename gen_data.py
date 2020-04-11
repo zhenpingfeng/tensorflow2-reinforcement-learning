@@ -3,8 +3,7 @@ import sys
 import numpy as np
 import pandas as pd
 import ta
-import tensorflow as tf
-from sklearn.preprocessing import MinMaxScaler
+
 
 def gen_data(file_path="gbpjpy15.csv"):
     try:
@@ -16,14 +15,14 @@ def gen_data(file_path="gbpjpy15.csv"):
 
     df["Close1"] = df["Close"] * 100
 
-    # returns = np.array(np.log(df["Close"] / df["Close"].shift(1))).reshape((-1,1)) * 1000
-    # ma = np.array(np.log(ta.trend.ema(df["Close1"], 14) / ta.trend.ema(df["Close1"], 7))).reshape((-1,1)) * 1000
-    # macd = np.array(ta.trend.macd_diff(df["Close1"])).reshape((-1,1))
-    rsi = np.array(ta.momentum.rsi(df["Close"]) - ta.momentum.rsi(df["Close"], 7)).reshape((-1,1))
-    stoch = np.array(ta.momentum.stoch_signal(df["High"], df["Low"], df["Close"]) - ta.momentum.stoch(df["High"], df["Low"], df["Close"])).reshape((-1,1))
+    ma = np.array(ta.trend.ema(df["Close1"], 14) - ta.trend.ema(df["Close1"], 7)).reshape((-1, 1))
+    macd = np.array(ta.trend.macd_diff(df["Close1"])).reshape((-1, 1))
+    rsi = np.array(ta.momentum.rsi(df["Close"]) - ta.momentum.rsi(df["Close"], 7)).reshape((-1, 1))
+    stoch = np.array(
+        ta.momentum.stoch_signal(df["High"], df["Low"], df["Close"]) - ta.momentum.stoch(df["High"], df["Low"],
+                                                                                         df["Close"])).reshape((-1, 1))
 
-    x = np.concatenate([rsi, stoch], -1)
-    # x = returns
+    x = np.concatenate([ma, macd, rsi, stoch], -1)
 
     y = np.array(df[["Open"]])
     atr = np.array(ta.volatility.average_true_range(df["High"], df["Low"], df["Close"]))
@@ -31,23 +30,33 @@ def gen_data(file_path="gbpjpy15.csv"):
     low = np.array(df[["Low"]])
 
     print("gen time series data")
-    gen = tf.keras.preprocessing.sequence.TimeseriesGenerator(x, y, 10)
-    x = []
-    y = []
-    for i in gen:
-        x.extend(i[0].tolist())
-        y.extend(i[1].tolist())
-    x = np.asanyarray(x)[100:]
-    y = np.asanyarray(y)[100:]
+    x = x[100:]
+    y = y[100:]
+
+    window_size = 130
+    time_x = []
+    time_y = []
+
+    for i in range(len(y) - window_size):
+        time_x.append(x[i:i + window_size])
+        i += window_size
+        time_y.append(y[i])
+
+    x = np.array(time_x).reshape((-1, window_size, x.shape[-1]))
+    y = np.array(time_y).reshape((-1, y.shape[-1]))
+
     atr = atr[-len(y):].reshape((-1, 1))
     scale_atr = atr
     high = high[-len(y):].reshape((-1, 1))
     low = low[-len(y):].reshape((-1, 1))
 
+    x = (x * 10 ** 5).astype(np.int32) * (10 ** -5)
+
     np.save("x", x)
     np.save("target", np.array([y, atr, scale_atr, high, low]))
 
     print("done\n")
+
 
 if __name__ == "__main__":
     argv = sys.argv
