@@ -6,17 +6,6 @@ import tensorflow as tf
 import base
 from env import Env
 
-
-def se_block(x):
-    sq = tf.keras.layers.GlobalAveragePooling1D()(x)
-    sq = tf.keras.layers.Reshape((1, x.shape[-1]))(sq)
-
-    ex1 = tf.keras.layers.Dense(x.shape[-1] // 7, "elu")(sq)
-    ex2 = tf.keras.layers.Dense(x.shape[-1], "sigmoid")(ex1)
-
-    return tf.keras.layers.Multiply()([x, ex2])
-
-
 def output(x, num):
     x = tf.keras.layers.Dense(512, "elu")(x)
     out = [tf.keras.layers.Dense(num)(x) for _ in range(3)]
@@ -153,5 +142,8 @@ class Agent(base.Agent):
         self.i = i
         self.model.save("qrdqn.h5")
         np.save("qrdqn_epoch", i)
-        _ = shutil.copy("/content/qrdqn.h5", "/content/drive/My Drive")
-        _ = shutil.copy("/content/qrdqn_epoch.npy", "/content/drive/My Drive")
+        try:
+            _ = shutil.copy("/content/qrdqn.h5", "/content/drive/My Drive")
+            _ = shutil.copy("/content/qrdqn_epoch.npy", "/content/drive/My Drive")
+        except:
+            pass

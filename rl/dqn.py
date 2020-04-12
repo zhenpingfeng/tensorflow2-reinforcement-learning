@@ -6,13 +6,6 @@ import base
 import numpy as np
 from env import Env
 
-
-def softmax(x):
-    """Compute softmax values for each sets of scores in x."""
-    e_x = np.exp(x - np.max(x))
-    return e_x / e_x.sum()
-
-
 def build_model(dim=(130, 4)):
     inputs = tf.keras.layers.Input(dim)
 
@@ -20,14 +13,11 @@ def build_model(dim=(130, 4)):
     x = tf.keras.layers.Flatten()(x)
     # x = tf.keras.layers.GRU(128)(x)
 
-    # tensor_action, tensor_validation = tf.split(x, 2, 1)
     x = tf.keras.layers.Dense(512, "elu")(x)
     out = tf.keras.layers.Dense(3, name="q")(x)
-    # v = tf.keras.layers.Dense(328, "elu", kernel_initializer="he_normal")(tensor_validation)
-    # # v = tf.keras.layers.BatchNormalization()(v)
+    # v = tf.keras.layers.Dense(328, "elu", kernel_initializer="he_normal")(x)
     # v = tf.keras.layers.Dense(1, name="v")(v)
-    # a = tf.keras.layers.Dense(328, "elu", kernel_initializer="he_normal")(tensor_action)
-    # # a = tf.keras.layers.BatchNormalization()(a)
+    # a = tf.keras.layers.Dense(328, "elu", kernel_initializer="he_normal")(x)
     # a = tf.keras.layers.Dense(2, name="a")(a)
     # out = v + tf.subtract(a, tf.reduce_mean(a, axis=1, keepdims=True))
 
@@ -151,5 +141,11 @@ class Agent(base.Agent):
         self.i = i
         self.model.save("dqn.h5")
         np.save("dqn_epoch", i)
-        _ = shutil.copy("/content/dqn.h5", "/content/drive/My Drive")
-        _ = shutil.copy("/content/dqn_epoch.npy", "/content/drive/My Drive")
+        try:
+            _ = shutil.copy("/content/dqn.h5", "/content/drive/My Drive")
+            _ = shutil.copy("/content/dqn_epoch.npy", "/content/drive/My Drive")
+        except:
+            pass
+
+# if __name__ == "__main__":
+#

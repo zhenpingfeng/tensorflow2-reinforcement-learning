@@ -17,7 +17,8 @@ def gaussian_entropy(log_std):
 def gaussian_likelihood(input_, mu_, log_std):
     pre_sum = -0.5 * (((input_ - mu_) / (tf.exp(log_std) + EPS))
                       ** 2 + 2 * log_std + np.log(2 * np.pi))
-    return tf.reduce_sum(pre_sum, axis=1, keepdims=True)
+    x = tf.reduce_sum(pre_sum, axis=1, keepdims=True)
+    return tf.keras.layers.Activation("linear", name="logp_pi")(x)
 
 
 def clip_but_pass_gradient(input_, lower=-1., upper=1.):
@@ -48,18 +49,21 @@ def output(x, name):
     # x = tf.keras.layers.Dropout(0.3)(x)
     return tf.keras.layers.Dense(1, name=name)(x)
 
-
 def build_actor(dim=(130, 4)):
-    inputs = tf.keras.layers.Input(dim)
+    inputs = tf.keras.layers.Input(dim, name="inputs")
 
     # x = base.bese_net(inputs)
-    # x = tf.keras.layers.GlobalAvgPool1D()(x)
-    x1 = tf.keras.layers.Flatten()(inputs)
-    x2 = tf.keras.layers.GlobalAvgPool1D()(inputs)
-    x = tf.keras.layers.Concatenate()([x1, x2])
+    x = tf.keras.layers.Flatten()(inputs)
+
+    x = tf.keras.layers.Dense(128, "relu")(x)
+    x = tf.keras.layers.Dense(128, "relu")(x)
     #
-    x = tf.keras.layers.Dense(64, "relu")(x)
-    x = tf.keras.layers.Dense(64, "relu")(x)
+    # x = tf.keras.layers.Dense(32, "selu", kernel_initializer="lecun_normal")(x)
+    # x = tf.keras.layers.AlphaDropout(0.2)(x)
+    # x = tf.keras.layers.Dense(32, "selu", kernel_initializer="lecun_normal")(x)
+    # x = tf.keras.layers.AlphaDropout(0.2)(x)
+    # x = tf.keras.layers.Dense(32, "selu", kernel_initializer="lecun_normal")(x)
+    # x = tf.keras.layers.AlphaDropout(0.2)(x)
 
     log_std = tf.keras.layers.Dense(2)(x)
     mu = tf.keras.layers.Dense(2)(x)
@@ -119,15 +123,22 @@ class Agent(base.Agent):
         self.target_model = Model()
 
         if self.restore:
-            self.i = np.load("sac_epoch.npy")
-            self.model.load_weights("sac")
-            self.target_model.load_weights("sac")
+            self.i = np.load("sac/sac_epoch.npy")
+            self.model.load_weights("sac/sac")
+            self.target_model.load_weights("sac/sac")
         else:
             self.target_model.set_weights(self.model.get_weights())
 
         self.v_opt = tf.keras.optimizers.Nadam(3e-4)
         self.p_opt = tf.keras.optimizers.Nadam(self.lr)
         self.e_opt = tf.keras.optimizers.Nadam(self.lr)
+
+        l = self.model.actor.get_layer
+        self.policy = tf.keras.backend.function(l("inputs").input, [l("deterministic_policy").output, l("policy").output, l("logp_pi").output])
+        l = self.model.critic.get_layer
+        self.q = tf.keras.backend.function([l("states").input, l("action").input], [l("q1").output, l("q2").output, l("v").output])
+        l = self.target_model.critic.get_layer
+        self.target_q = tf.keras.backend.function([l("states").input, l("action").input], [l("q1").output, l("q2").output, l("v").output])
 
         # if self.restore:
         #     lr = self.lr * 0.00001 ** (i / 10000000)
@@ -161,11 +172,11 @@ class Agent(base.Agent):
         actions = np.array([a[0][1] for a in replay], np.float32).reshape((-1, 2))
         rewards = np.array([a[0][2] for a in replay], np.float32).reshape((-1, 1))
 
-        d, policy, logp_pi = self.model.actor(states)
+        d, policy, logp_pi = self.policy(states)
         ent_coef = tf.exp(self.model.log_ent_coef)
-        q1_pi, q2_pi, _ = self.model.critic([states, policy])
+        q1_pi, q2_pi, _ = self.q([states, policy])
         mean_q_pi = (q1_pi + q2_pi) / 2
-        _, _, target_v = self.target_model.critic([new_states, actions])
+        _, _, target_v = self.target_q([new_states, actions])
         q_backup = rewards + self.gamma * target_v
         v_backup = mean_q_pi - ent_coef * logp_pi
         ################################################################################
@@ -184,10 +195,6 @@ class Agent(base.Agent):
 
             gradients = p_tape.gradient(p_loss, self.model.actor.trainable_variables)
             self.p_opt.apply_gradients(zip(gradients, self.model.actor.trainable_variables))
-
-            self.target_model.set_weights(
-                (1 - 0.01) * np.array(self.target_model.get_weights()) + 0.01 * np.array(
-                    self.model.get_weights()))
             ##############################################################################
             with tf.GradientTape() as e_tape:
                 e_loss = -tf.reduce_mean(self.model.log_ent_coef * logp_pi + self.model.target_entropy)
@@ -196,6 +203,10 @@ class Agent(base.Agent):
             # gradients = (tf.clip_by_value(gradients, -1.0, 1.0))
             self.e_opt.apply_gradients([[gradients, self.model.log_ent_coef]])
             ################################################################################
+
+        self.target_model.set_weights(
+            (1 - 0.005) * np.array(self.target_model.get_weights()) + 0.005 * np.array(
+                self.model.get_weights()))
 
         abs_error = tf.abs(q_backup - q1).numpy().reshape((-1,))
         # print(print(abs_error))
@@ -212,7 +223,7 @@ class Agent(base.Agent):
     #     self.v_opt.lr.assign(lr)
 
     def action(self, state, i):
-        deterministic_policy, policy, _ = self.model.actor.predict_on_batch(state)
+        deterministic_policy, policy, _ = self.policy(state)
         p = deterministic_policy if (i + 1) % 5 == 0 else policy
 
         q = p[:]
@@ -234,4 +245,7 @@ class Agent(base.Agent):
         self.i = i
         self.model.save_weights("sac/sac")
         np.save("sac/sac_epoch", i)
-        copy_tree("/content/sac", "/content/drive/My Drive")
+        try:
+            copy_tree("/content/sac", "/content/drive/My Drive/sac")
+        except:
+            pass
