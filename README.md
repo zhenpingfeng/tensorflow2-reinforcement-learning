@@ -20,6 +20,7 @@ agent.run()
 ## rl agent
 
 * sac
+
 * dqn
 * qr dqn
 * noisy dense
