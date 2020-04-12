@@ -95,7 +95,7 @@ class Agent(base.Agent):
             q1, q2 = self.model.critic([states, actions])
             q1_error = q_backup - q1
             q2_erorr = q_backup - q2
-            loss = q1_error ** 2 + q2_erorr ** 2
+            loss = tf.reduce_mean(q1_error ** 2) + tf.reduce_mean(q2_erorr ** 2)
         gradient = tape.gradient(loss, self.model.critic.trainable_variables)
         self.v_opt.apply_gradients(zip(gradient, self.model.critic.trainable_variables))
 
