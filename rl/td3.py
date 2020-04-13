@@ -10,12 +10,13 @@ from env import Env
 env = Env(types=2)
 
 def actor(input_shape):
-    i = tf.keras.layers.Input(input_shape)
+    i = tf.keras.layers.Input(input_shape, name="inputs")
+    x = tf.keras.layers.Flatten()(i)
 
-    x = tf.keras.layers.Dense(128, "relu")(i)
+    x = tf.keras.layers.Dense(128, "relu")(x)
     x = tf.keras.layers.Dense(128, "relu")(x)
 
-    x = tf.keras.layers.Dense(2, name="policy")(x)
+    x = tf.keras.layers.Dense(2, "tanh", name="policy")(x)
 
     return tf.keras.Model(i, x)
 
@@ -89,7 +90,8 @@ class Agent(base.Agent):
         rewards = np.array([a[0][2] for a in replay], np.float32).reshape((-1, 1))
 
         noise_policy = self.target_policy(new_states) + np.random.normal(0, 0.2, actions.shape).clip(-0.5, 0.5)
-        q_backup = rewards + self.gamma * np.minimum(self.target_q([new_states, noise_policy]))
+        q1_pi, q2_pi = self.target_q([new_states, noise_policy])
+        q_backup = rewards + self.gamma * np.minimum(q1_pi, q2_pi)
 
         with tf.GradientTape() as tape:
             q1, q2 = self.model.critic([states, actions])
@@ -117,12 +119,14 @@ class Agent(base.Agent):
         self.epoch += 1
 
     def action(self, state, i):
+        epsilon = 0.1 + (1 - 0.1) * (np.exp(-0.0001 * i))
         if i < 50:
             policy = np.array([self.aciton_space.sample() for _ in range(state.shape[0])])
         else:
             policy = self.policy(state)
+            self.p = policy
             if (i + 1) % 5 != 0:
-                policy = (policy + 0.1 * np.random.randn(*policy.shape)).clip(-1,1)
+                policy = (policy + epsilon * np.random.randn(*policy.shape)).clip(-1,1)
 
         q = policy[:]
         '''
