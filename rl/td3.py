@@ -121,6 +121,8 @@ class Agent(base.Agent):
             policy = np.array([self.aciton_space.sample() for _ in range(state.shape[0])])
         else:
             policy = self.policy(state)
+            if (i + 1) % 5 != 0:
+                policy = (policy + 0.1 * np.random.randn(*policy.shape)).clip(-1,1)
 
         q = policy[:]
         '''
