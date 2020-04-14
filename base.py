@@ -100,8 +100,12 @@ class Agent:
 
             if self.types == 1:
                 action = self.action(df, i)
+                if len(action) == 2:
+                    action, q = action
+                else:
+                    q = np.array(action).reshape((-1, 1))
+
                 self.rewards.reward(trend, high, low, action, atr, scale_atr)
-                q = np.array(action).reshape((-1, 1))
 
             elif self.types == 2:
                 action, leverage, q = self.action(df, i)
@@ -139,8 +143,11 @@ class Agent:
                 self.gamma = 1 - (0.1 + (1 - 0.1) * (np.exp(-0.00001 * i)))
                 reset += 1
 
-            if i % 2000 == 0:
-                clear_output()
+            try:
+                if i % 2000 == 0:
+                    clear_output()
+            except:
+                pass
 
             if (i + 1) % 5 == 0 or not train:
                 prob = pd.Series(action)
