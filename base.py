@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from IPython.display import clear_output
-
+import gc
 from env import Env
 
 
@@ -146,6 +146,7 @@ class Agent:
             try:
                 if i % 2000 == 0:
                     clear_output()
+                    gc.collect()
             except:
                 pass
 
