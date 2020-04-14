@@ -65,8 +65,8 @@ def build_actor(dim=(130, 4)):
     # x = tf.keras.layers.Dense(32, "selu", kernel_initializer="lecun_normal")(x)
     # x = tf.keras.layers.AlphaDropout(0.2)(x)
 
-    log_std = tf.keras.layers.Dense(2)(x)
-    mu = tf.keras.layers.Dense(2)(x)
+    log_std = tf.keras.layers.Dense(1)(x)
+    mu = tf.keras.layers.Dense(1)(x)
 
     # mu = tf.clip_by_value(tf.abs(mu), 0.1, 10) * (tf.abs(mu) / mu)
     log_std = tf.clip_by_value(log_std, -20, 2.)
@@ -82,7 +82,7 @@ def build_actor(dim=(130, 4)):
 
 def build_critic(dim):
     states = tf.keras.layers.Input(dim, name="states")
-    action = tf.keras.layers.Input((2,), name="action")
+    action = tf.keras.layers.Input((1,), name="action")
 
     x = base.bese_net(states)
     # x = tf.keras.layers.GRU(128, dropout=0.2, recurrent_dropout=0.2)(x)
@@ -105,7 +105,7 @@ class Model(tf.keras.Model):
         self.target_entropy = -np.prod(3).astype(np.float32)
 
 
-env = Env(types=2)
+env = Env(types=1)
 
 
 class Agent(base.Agent):
@@ -129,7 +129,7 @@ class Agent(base.Agent):
         else:
             self.target_model.set_weights(self.model.get_weights())
 
-        self.v_opt = tf.keras.optimizers.Nadam(3e-4)
+        self.v_opt = tf.keras.optimizers.Nadam(1e-3)
         self.p_opt = tf.keras.optimizers.Nadam(self.lr)
         self.e_opt = tf.keras.optimizers.Nadam(self.lr)
 
@@ -169,7 +169,7 @@ class Agent(base.Agent):
 
         states = np.array([a[0][0] for a in replay], np.float32)
         new_states = np.array([a[0][3] for a in replay], np.float32)
-        actions = np.array([a[0][1] for a in replay], np.float32).reshape((-1, 2))
+        actions = np.array([a[0][1] for a in replay], np.float32).reshape((-1, 1))
         rewards = np.array([a[0][2] for a in replay], np.float32).reshape((-1, 1))
 
         d, policy, logp_pi = self.policy(states)
@@ -187,11 +187,11 @@ class Agent(base.Agent):
         gradient = tape.gradient(loss, self.model.critic.trainable_variables)
         self.v_opt.apply_gradients(zip(gradient, self.model.critic.trainable_variables))
         ################################################################################
-        if self.epoch % 4 == 0:
+        if self.epoch % 2 == 0:
             with tf.GradientTape() as p_tape:
                 d, policy, logp_pi = self.model.actor(states)
                 q1_pi, q2_pi, _ = self.model.critic([states, policy])
-                p_loss = tf.reduce_mean(ent_coef * logp_pi * 2 - (q1_pi + q2_pi))
+                p_loss = tf.reduce_mean(ent_coef * logp_pi * 2 - q1_pi)
 
             gradients = p_tape.gradient(p_loss, self.model.actor.trainable_variables)
             self.p_opt.apply_gradients(zip(gradients, self.model.actor.trainable_variables))
@@ -204,14 +204,13 @@ class Agent(base.Agent):
             self.e_opt.apply_gradients([[gradients, self.model.log_ent_coef]])
             ################################################################################
 
-        self.target_model.set_weights(
-            (1 - 0.005) * np.array(self.target_model.get_weights()) + 0.005 * np.array(
-                self.model.get_weights()))
+            self.target_model.set_weights(
+                (1 - 0.005) * np.array(self.target_model.get_weights()) + 0.005 * np.array(
+                    self.model.get_weights()))
 
         abs_error = tf.abs(q_backup - q1).numpy().reshape((-1,))
         # print(print(abs_error))
         self.memory.batch_update(tree_idx, abs_error)
-        self.gamma = 1 - (0.1 + (1 - 0.1) * (np.exp(-0.00001 * i)))
 
         self.epoch += 1
 
@@ -232,13 +231,13 @@ class Agent(base.Agent):
         400 + 400 * 0.25 = 500
         400 + 400 * -0.5 = 200
         '''
-        action, leverage = p[:, 0], [i * 0.25 if i > 0 else i * 0.5 for i in p[:, 1]]
-        action = [2 if i >= -1.5 and i < -0.5 else 0 if i >= -0.5 and i < 0.5 else 1 for i in action * 1.5]
+        # action, leverage = p[:, 0], [i * 0.25 if i > 0 else i * 0.5 for i in p[:, 1]]
+        action = [2 if i >= -1.5 and i < -0.5 else 0 if i >= -0.5 and i < 0.5 else 1 for i in p * 1.5]
         # action = [2 if i >= 0 and i < 0.5 else 0 if i >= 0.5 and i < 1 else 1 for i in np.abs(action) * 1.5]
         # action = [0 if i > 0.5 else 1 for i in np.abs(action)]
         # action = [0 if i >= 0 else 1 for i in action]
 
-        return action, leverage, q
+        return action, q
 
     def save(self, i):
         self.restore = True
