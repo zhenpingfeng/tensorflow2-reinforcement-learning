@@ -5,12 +5,16 @@ from tensorflow.python.framework import tensor_shape
 from tensorflow.python.ops import gen_math_ops
 from tensorflow.python.ops import nn
 from tensorflow.python.ops import standard_ops
+from tensorflow.python.keras.engine.input_spec import InputSpec
 
 
 class IndependentDense(tf.keras.layers.Dense):
     def build(self, input_shape):
-        super(IndependentDense, self).build(input_shape)
+        # super(IndependentDense, self).build(input_shape)
         self.last_dim = tensor_shape.dimension_value(input_shape[-1])
+        self.input_spec = InputSpec(min_ndim=2,
+                                    axes={-1: self.last_dim})
+
         self.mu_init = tf.random_uniform_initializer(-((3 / self.last_dim) ** 0.5), (3 / self.last_dim) ** 0.5)
         self.sigma_init = tf.constant_initializer(0.017)
 
@@ -24,6 +28,7 @@ class IndependentDense(tf.keras.layers.Dense):
                                         trainable=True)
             self.b_sigma = self.add_weight("b_sigma", [self.units, ], initializer=self.sigma_init, dtype=self.dtype,
                                            trainable=True)
+        self.built = True
 
     def call(self, inputs):
         def rank(tensor):
@@ -35,7 +40,7 @@ class IndependentDense(tf.keras.layers.Dense):
         inputs = ops.convert_to_tensor(inputs)
         rank = rank(inputs)
         w_epsilon = tf.random.normal((self.last_dim, self.units))
-        w = self.w_mu * self.kernel + self.w_sigma * self.kernel * (w_epsilon * self.kernel)
+        w = self.w_mu + self.w_sigma * w_epsilon
 
         if rank > 2:
             # Broadcasting is required for the inputs.
@@ -49,7 +54,7 @@ class IndependentDense(tf.keras.layers.Dense):
             outputs = gen_math_ops.mat_mul(inputs, w)
         if self.use_bias:
             b_epsilon = tf.random.normal([self.units, ])
-            b = self.b_mu * self.bias + self.b_sigma * self.bias * (b_epsilon * self.bias)
+            b = self.b_mu + self.b_sigma * b_epsilon
             outputs = nn.bias_add(outputs, b)
         if self.activation is not None:
             return self.activation(outputs)  # pylint: disable=not-callable
@@ -58,8 +63,10 @@ class IndependentDense(tf.keras.layers.Dense):
 
 class FactorisedDense(tf.keras.layers.Dense):
     def build(self, input_shape):
-        super(FactorisedDense, self).build(input_shape)
+        # super(FactorisedDense, self).build(input_shape)
         self.last_dim = tensor_shape.dimension_value(input_shape[-1])
+        self.input_spec = InputSpec(min_ndim=2,
+                                    axes={-1: self.last_dim})
         mu = 1 / self.last_dim ** 0.5
         self.mu_init = tf.random_uniform_initializer(-mu, mu)
         self.sigma_init = tf.constant_initializer(0.5 / self.last_dim ** 0.5)
@@ -75,6 +82,8 @@ class FactorisedDense(tf.keras.layers.Dense):
             self.b_sigma = self.add_weight("b_sigma", [self.units, ], initializer=self.sigma_init, dtype=self.dtype,
                                            trainable=True)
 
+        self.built = True
+
     def call(self, inputs):
         def rank(tensor):
             """Return a rank if it is a tensor, else return None."""
@@ -84,10 +93,11 @@ class FactorisedDense(tf.keras.layers.Dense):
 
         inputs = ops.convert_to_tensor(inputs)
         rank = rank(inputs)
+
         p, q = tf.random.normal((self.last_dim, 1)), tf.random.normal((1, self.units))
         p, q = (tf.math.sign(p) * tf.abs(p) ** 0.5), (tf.math.sign(q) * tf.abs(q) ** 0.5)
         w_epsilon = p * q
-        w = self.w_mu * self.kernel + self.w_sigma * self.kernel * (w_epsilon * self.kernel)
+        w = self.w_mu + self.w_sigma * w_epsilon
 
         if rank > 2:
             # Broadcasting is required for the inputs.
@@ -101,7 +111,7 @@ class FactorisedDense(tf.keras.layers.Dense):
             outputs = gen_math_ops.mat_mul(inputs, w)
         if self.use_bias:
             b_epsilon = tf.squeeze(q)
-            b = self.b_mu * self.bias + self.b_sigma * self.bias * (b_epsilon * self.bias)
+            b = self.b_mu + self.b_sigma * b_epsilon
             outputs = nn.bias_add(outputs, b)
         if self.activation is not None:
             return self.activation(outputs)  # pylint: disable=not-callable
