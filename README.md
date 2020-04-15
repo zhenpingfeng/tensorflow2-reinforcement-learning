@@ -23,5 +23,5 @@ agent.run()
 
 * dqn
 * qr dqn
-* noisy dense
-* rainbow (no noisy)
+* NoisyNet
+* rainbow
