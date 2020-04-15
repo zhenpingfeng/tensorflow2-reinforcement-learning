@@ -37,8 +37,8 @@ class Agent(qr_dqn.Agent):
     def build(self):
         if self.restore:
             self.i = np.load("rainbow_epoch.npy")
-            self.model = tf.keras.models.load_model("rainbow.h5")
-            self.target_model = tf.keras.models.load_model("rainbow.h5")
+            self.model = tf.keras.models.load_model("rainbow.h5", custom_objects={"IndependentDense":IndependentDense})
+            self.target_model = tf.keras.models.load_model("rainbow.h5", custom_objects={"IndependentDense":IndependentDense})
         else:
             self.model = build_model(self.num)
             opt = tf.keras.optimizers.Nadam(self.lr)
