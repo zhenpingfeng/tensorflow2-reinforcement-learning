@@ -50,9 +50,9 @@ class Agent(qr_dqn.Agent):
         self.targe_q = tf.keras.backend.function(self.target_model.get_layer("inputs").input, self.target_model.get_layer("q").output)
 
 
-    # def action(self, state, i):
-    #     q = np.sum(self.q(state), -1)
-    #     return np.argmax(q, -1)
+    def action(self, state, i):
+        q = np.sum(self.q(state), -1)
+        return np.argmax(q, -1)
 
     def save(self, i):
         self.restore = True
