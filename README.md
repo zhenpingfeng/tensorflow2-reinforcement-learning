@@ -5,7 +5,7 @@ python gen_data.py gbpjpy15.csv
 ```
 
 ```python
-import dqn
+from rl import dqn
 from env import Env
 
 env = Env(step_size=96, types=1, spread=10, pip_cost=1000, leverage=500, min_lots=0.01, assets=100000, available_assets_rate=0.8)
