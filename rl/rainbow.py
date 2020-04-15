@@ -6,14 +6,11 @@ import base
 import qr_dqn
 import numpy as np
 from env import Env
-from noisy_dense import FactorisedDense
+from noisy_dense import IndependentDense
 
-#non noisy
-
-FactorisedDense = tf.keras.layers.Dense
 
 def output(x, num):
-    out = [FactorisedDense(num)(x) for _ in range(3)]
+    out = [IndependentDense(num)(x) for _ in range(3)]
     out = [tf.reshape(out, (-1, 1, num)) for out in out]
 
     out = tf.keras.layers.Concatenate(axis=1, name="Q")(out)
@@ -25,16 +22,15 @@ def build_model(n=200, dim=(130, 4)):
 
     x = base.bese_net(inputs)
     x = tf.keras.layers.Flatten()(x)
-    x = FactorisedDense(512, "elu")(x)
+    x = IndependentDense(512, "elu")(x)
 
     advantage = output(x, n)
-    value = FactorisedDense(n)(x)
+    value = IndependentDense(n)(x)
     value = tf.reshape(value, (-1,1,n))
     sub = advantage - tf.reshape(tf.reduce_mean(advantage, 1), (-1,1,n))
     out = tf.keras.layers.Add(name="q")([value, sub])
 
     return tf.keras.Model(inputs, out)
-
 
 
 class Agent(qr_dqn.Agent):
